@@ -1,0 +1,508 @@
+use crossterm::{
+    cursor,
+    event::{self, Event, KeyCode, KeyEvent},
+    execute,
+};
+use num::BigInt;
+use std::{
+    collections::{BTreeMap, VecDeque},
+    io::{Read, Write},
+    sync::Arc,
+    sync::Mutex,
+};
+
+type Error = Box<dyn std::error::Error>;
+type Result<T> = core::result::Result<T, Error>;
+
+trait Word {
+    fn eval(&self, vm: &mut Vm) -> Result<()>;
+
+    fn is_immediate(&self) -> bool {
+        false
+    }
+
+    fn is_pure(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Default)]
+pub struct Vm {
+    stream: VecDeque<u8>,
+    dictionary: Dictionary,
+    int_stack: Vec<BigInt>,
+    obj_stack: Vec<Object>,
+}
+
+#[derive(Default)]
+struct Dictionary {
+    words: BTreeMap<Box<str>, Arc<dyn Word>>,
+}
+
+#[derive(Default)]
+struct NameSpace {
+    words: BTreeMap<Box<str>, Arc<dyn Word>>,
+}
+
+struct WordFn<const IMMEDIATE: bool, F>(F);
+
+#[derive(Clone, Debug, Default)]
+struct Object {
+    data: Box<[u8]>,
+    refs: Box<[Object]>,
+}
+
+#[derive(Clone, Debug)]
+struct GlobalGet<T>(Arc<Mutex<T>>);
+
+#[derive(Clone, Debug)]
+struct GlobalSet<T>(Arc<Mutex<T>>);
+
+impl Vm {
+    pub fn stream_append(&mut self, bytes: &[u8]) {
+        self.stream.extend(bytes);
+    }
+
+    pub fn run(&mut self) -> Result<()> {
+        while let Some(x) = self.read_word()? {
+            self.dictionary.get(&x).unwrap().eval(self)?;
+        }
+        Ok(())
+    }
+
+    pub fn push_string(&mut self, s: &str) -> Result<()> {
+        self.obj_push(s.into())
+    }
+
+    fn read_word(&mut self) -> Result<Option<String>> {
+        let mut word = vec![];
+        while let Some(x) = self.stream.pop_front() {
+            if x.is_ascii_whitespace() {
+                if word.is_empty() {
+                    continue;
+                }
+                break;
+            }
+            word.push(x);
+        }
+        (!word.is_empty())
+            .then(|| Ok(String::from_utf8(word)?))
+            .transpose()
+    }
+
+    fn define(&mut self, word: &str, value: Arc<dyn Word>) {
+        self.dictionary.define(word, value);
+    }
+
+    fn define_global<T>(&mut self, name: &str, init: T) -> Result<()>
+    where
+        T: 'static,
+        GlobalGet<T>: Word,
+        GlobalSet<T>: Word,
+    {
+        let (get, set) = new_global(init);
+        self.dictionary.define(name, Arc::new(get));
+        self.dictionary
+            .define(&format!("set:{name}"), Arc::new(set));
+        Ok(())
+    }
+
+    fn int_push(&mut self, int: BigInt) -> Result<()> {
+        self.int_stack.push(int);
+        Ok(())
+    }
+
+    fn int_pop(&mut self) -> Result<BigInt> {
+        self.int_stack.pop().ok_or_else(|| todo!())
+    }
+
+    fn obj_push(&mut self, obj: Object) -> Result<()> {
+        self.obj_stack.push(obj);
+        Ok(())
+    }
+
+    fn obj_pop(&mut self) -> Result<Object> {
+        self.obj_stack.pop().ok_or_else(|| todo!())
+    }
+
+    fn int_op2to1<F>(&mut self, f: F) -> Result<()>
+    where
+        F: FnOnce(BigInt, BigInt) -> BigInt,
+    {
+        let y = self.int_pop()?;
+        let x = self.int_pop()?;
+        self.int_push((f)(x, y))?;
+        Ok(())
+    }
+}
+
+impl Dictionary {
+    fn define(&mut self, word: &str, value: Arc<dyn Word>) {
+        self.words.insert(word.into(), value);
+    }
+
+    fn get(&self, word: &str) -> Option<Arc<dyn Word>> {
+        if let Some(x) = self.words.get(word).cloned() {
+            return Some(x);
+        }
+        if word.len() > 2 && word.starts_with("'") && word.ends_with("'") {
+            let mut it = word.chars().skip(1);
+            let c = match it.next().unwrap() {
+                '\\' => match it.next().unwrap() {
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    c => todo!("{c:?}"),
+                },
+                c => c,
+            };
+            assert_eq!(it.next().unwrap(), '\'');
+            return Some(Arc::new(BigInt::from(c as u32)));
+        }
+        word.parse::<BigInt>()
+            .ok()
+            .map(|x| Arc::new(x) as Arc<dyn Word>)
+    }
+}
+
+impl From<Box<[u8]>> for Object {
+    fn from(data: Box<[u8]>) -> Self {
+        Self {
+            data,
+            refs: [].into(),
+        }
+    }
+}
+
+impl From<Vec<u8>> for Object {
+    fn from(s: Vec<u8>) -> Self {
+        s.into_boxed_slice().into()
+    }
+}
+
+impl From<String> for Object {
+    fn from(s: String) -> Self {
+        s.into_bytes().into()
+    }
+}
+
+impl From<&str> for Object {
+    fn from(s: &str) -> Self {
+        s.to_string().into()
+    }
+}
+
+impl FromIterator<Self> for Object {
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = Self>,
+    {
+        Self {
+            data: [].into(),
+            refs: iter.into_iter().collect(),
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a Object> for &'a str {
+    type Error = core::str::Utf8Error;
+
+    fn try_from(obj: &'a Object) -> core::result::Result<Self, Self::Error> {
+        core::str::from_utf8(&obj.data)
+    }
+}
+
+impl<const IMMEDIATE: bool, F> Word for WordFn<IMMEDIATE, F>
+where
+    F: Fn(&mut Vm) -> Result<()>,
+{
+    fn eval(&self, vm: &mut Vm) -> Result<()> {
+        (self.0)(vm)
+    }
+
+    fn is_immediate(&self) -> bool {
+        IMMEDIATE
+    }
+}
+
+impl Word for BigInt {
+    fn eval(&self, vm: &mut Vm) -> Result<()> {
+        vm.int_push(self.clone())?;
+        Ok(())
+    }
+
+    fn is_pure(&self) -> bool {
+        true
+    }
+}
+
+impl Word for NameSpace {
+    fn eval(&self, vm: &mut Vm) -> Result<()> {
+        let word = vm.read_word()?.unwrap();
+        let x = self.words.get(&*word).unwrap();
+        x.eval(vm)
+    }
+
+    fn is_immediate(&self) -> bool {
+        true
+    }
+}
+
+impl Word for GlobalGet<BigInt> {
+    fn eval(&self, vm: &mut Vm) -> Result<()> {
+        let x = self.0.lock().unwrap().clone();
+        vm.int_push(x)
+    }
+}
+
+impl Word for GlobalGet<Object> {
+    fn eval(&self, vm: &mut Vm) -> Result<()> {
+        let x = self.0.lock().unwrap().clone();
+        vm.obj_push(x)
+    }
+}
+
+impl Word for GlobalSet<BigInt> {
+    fn eval(&self, vm: &mut Vm) -> Result<()> {
+        let x = vm.int_pop()?;
+        *self.0.lock().unwrap() = x;
+        Ok(())
+    }
+}
+
+impl Word for GlobalSet<Object> {
+    fn eval(&self, vm: &mut Vm) -> Result<()> {
+        let x = vm.obj_pop()?;
+        *self.0.lock().unwrap() = x;
+        Ok(())
+    }
+}
+
+/// Create VM with all capabilities.
+pub fn create_root_vm() -> Vm {
+    let mut vm = Vm::default();
+    vm.define("+", with(|vm| vm.int_op2to1(|x, y| x + y)));
+    vm.define("-", with(|vm| vm.int_op2to1(|x, y| x - y)));
+    vm.define("*", with(|vm| vm.int_op2to1(|x, y| x * y)));
+    vm.define("=", with(|vm| vm.int_op2to1(|x, y| (x == y).into())));
+    vm.define("<>", with(|vm| vm.int_op2to1(|x, y| (x != y).into())));
+    vm.define("<", with(|vm| vm.int_op2to1(|x, y| (x < y).into())));
+    vm.define(">", with(|vm| vm.int_op2to1(|x, y| (x > y).into())));
+    vm.define("<=", with(|vm| vm.int_op2to1(|x, y| (x <= y).into())));
+    vm.define(">=", with(|vm| vm.int_op2to1(|x, y| (x >= y).into())));
+    vm.define(
+        "@dup",
+        with(|vm| {
+            let x = vm.obj_pop()?;
+            vm.obj_push(x.clone())?;
+            vm.obj_push(x)
+        }),
+    );
+    vm.define(
+        "@drop",
+        with(|vm| {
+            let _ = vm.obj_pop()?;
+            Ok(())
+        }),
+    );
+    vm.define(
+        "Window",
+        dict(&[(
+            "print",
+            with(|vm| {
+                let x = vm.obj_pop()?;
+                let s = String::from_utf8_lossy(&x.data);
+                println!("{s}");
+                Ok(())
+            }),
+        )]),
+    );
+    vm.define(
+        "Sys",
+        dict(&[
+            (
+                "Fs",
+                dict(&[(
+                    "read",
+                    with(|vm| {
+                        let x = vm.obj_pop()?;
+                        let x = <&str>::try_from(&x)?;
+                        vm.obj_push(std::fs::read(x)?.into())
+                    }),
+                )]),
+            ),
+            (
+                "Terminal",
+                dict(&[
+                    (
+                        "wait",
+                        with(|vm| match event::read()? {
+                            Event::FocusGained => todo!(),
+                            Event::FocusLost => todo!(),
+                            Event::Key(KeyEvent {
+                                code,
+                                modifiers,
+                                kind,
+                                state,
+                            }) => match code {
+                                KeyCode::Backspace => todo!(),
+                                KeyCode::Enter => todo!(),
+                                KeyCode::Left => todo!(),
+                                KeyCode::Right => todo!(),
+                                KeyCode::Up => todo!(),
+                                KeyCode::Down => todo!(),
+                                KeyCode::PageUp => todo!(),
+                                KeyCode::PageDown => todo!(),
+                                KeyCode::Home => todo!(),
+                                KeyCode::End => todo!(),
+                                KeyCode::Tab => todo!(),
+                                KeyCode::BackTab => todo!(),
+                                KeyCode::Delete => todo!(),
+                                KeyCode::Insert => todo!(),
+                                KeyCode::Null => todo!(),
+                                KeyCode::Esc => todo!(),
+                                KeyCode::CapsLock => todo!(),
+                                KeyCode::ScrollLock => todo!(),
+                                KeyCode::NumLock => todo!(),
+                                KeyCode::PrintScreen => todo!(),
+                                KeyCode::Pause => todo!(),
+                                KeyCode::Menu => todo!(),
+                                KeyCode::KeypadBegin => todo!(),
+                                KeyCode::Media(x) => todo!("{x:?}"),
+                                KeyCode::Modifier(x) => todo!("{x:?}"),
+                                KeyCode::F(x) => todo!("{x:?}"),
+                                KeyCode::Char(x) => todo!("{x:?}"),
+                            },
+                            Event::Mouse(x) => todo!("{x:?}"),
+                            Event::Paste(s) => todo!("{s:?}"),
+                            Event::Resize(x, y) => todo!("{x} {y}"),
+                        }),
+                    ),
+                    (
+                        "set-cursor",
+                        with(|vm| {
+                            let y = vm.int_pop()?;
+                            let x = vm.int_pop()?;
+                            let y = u16::try_from(y)?;
+                            let x = u16::try_from(x)?;
+                            execute!(std::io::stdout(), cursor::MoveTo(x, y))?;
+                            Ok(())
+                        }),
+                    ),
+                ]),
+            ),
+        ]),
+    );
+    vm.define(
+        "String",
+        dict(&[
+            (
+                "__debug",
+                with(|vm| {
+                    let x = vm.obj_pop()?;
+                    vm.obj_push(format!("{x:?}").into())?;
+                    Ok(())
+                }),
+            ),
+            (
+                "decimal",
+                with(|vm| {
+                    let x = vm.int_pop()?;
+                    vm.obj_push(x.to_string().into())?;
+                    Ok(())
+                }),
+            ),
+            (
+                "split",
+                with(|vm| {
+                    let x = vm.int_pop()?;
+                    let x = u32::try_from(x).unwrap();
+                    let x = char::from_u32(x).unwrap();
+                    let y = vm.obj_pop()?;
+                    let y = <&str>::try_from(&y)?;
+                    let mut n = 0;
+                    vm.obj_push(y.split(&[x]).map(Object::from).collect())
+                }),
+            ),
+        ]),
+    );
+    vm.define(
+        "Object",
+        dict(&[
+            (
+                "Data",
+                dict(&[(
+                    "get",
+                    with(|vm| {
+                        let i = vm.int_pop()?;
+                        let i = usize::try_from(i).unwrap();
+                        let x = *vm.obj_pop()?.data.get(i).unwrap();
+                        vm.int_push(x.into())
+                    }),
+                )]),
+            ),
+            (
+                "Refs",
+                dict(&[(
+                    "get",
+                    with(|vm| {
+                        let i = vm.int_pop()?;
+                        let i = usize::try_from(i).unwrap();
+                        let x = vm.obj_pop()?.refs.get(i).unwrap().clone();
+                        vm.obj_push(x.into())
+                    }),
+                )]),
+            ),
+        ]),
+    );
+    vm.define(
+        "Global",
+        dict(&[
+            (
+                "integer",
+                with_imm(|vm| {
+                    let x = vm.read_word()?.unwrap();
+                    vm.define_global(&x, BigInt::default())
+                }),
+            ),
+            (
+                "object",
+                with_imm(|vm| {
+                    let x = vm.read_word()?.unwrap();
+                    vm.define_global(&x, Object::default())
+                }),
+            ),
+        ]),
+    );
+    vm
+}
+
+/// Create a word from a closure.
+fn with<F>(f: F) -> Arc<dyn Word>
+where
+    F: 'static + Fn(&mut Vm) -> Result<()>,
+{
+    Arc::new(WordFn::<false, F>(f))
+}
+
+/// Create an immediate word from a closure.
+fn with_imm<F>(f: F) -> Arc<dyn Word>
+where
+    F: 'static + Fn(&mut Vm) -> Result<()>,
+{
+    Arc::new(WordFn::<true, F>(f))
+}
+
+fn dict(words: &[(&str, Arc<dyn Word>)]) -> Arc<dyn Word> {
+    Arc::new(NameSpace {
+        words: words
+            .iter()
+            .map(|(k, v)| (Box::from(*k), v.clone()))
+            .collect(),
+    })
+}
+
+fn new_global<T>(value: T) -> (GlobalGet<T>, GlobalSet<T>) {
+    let x = Arc::new(Mutex::new(value));
+    (GlobalGet(x.clone()), GlobalSet(x))
+}
