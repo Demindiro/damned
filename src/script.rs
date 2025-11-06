@@ -32,6 +32,7 @@ pub struct Vm {
     dictionary: Dictionary,
     int_stack: Vec<BigInt>,
     obj_stack: Vec<Object>,
+    compiler: Option<Compiler>,
 }
 
 #[derive(Default)]
@@ -42,6 +43,12 @@ struct Dictionary {
 #[derive(Default)]
 struct NameSpace {
     words: BTreeMap<Box<str>, Arc<dyn Word>>,
+}
+
+#[derive(Default)]
+struct Compiler {
+    name: Box<str>,
+    words: Vec<Arc<dyn Word>>,
 }
 
 struct WordFn<const IMMEDIATE: bool, F>(F);
@@ -65,13 +72,25 @@ impl Vm {
 
     pub fn run(&mut self) -> Result<()> {
         while let Some(x) = self.read_word()? {
-            self.dictionary.get(&x).unwrap().eval(self)?;
+            self.dictionary
+                .get(&x)
+                .ok_or_else(|| todo!("{x}"))
+                .and_then(|x| self.eval(&x))?;
         }
         Ok(())
     }
 
     pub fn push_string(&mut self, s: &str) -> Result<()> {
         self.obj_push(s.into())
+    }
+
+    fn eval(&mut self, word: &Arc<dyn Word>) -> Result<()> {
+        if let Some(c) = self.compiler.as_mut().filter(|_| !word.is_immediate()) {
+            c.push(word.clone());
+        } else {
+            word.eval(self)?;
+        }
+        Ok(())
     }
 
     fn read_word(&mut self) -> Result<Option<String>> {
@@ -104,6 +123,17 @@ impl Vm {
         self.dictionary.define(name, Arc::new(get));
         self.dictionary
             .define(&format!("set:{name}"), Arc::new(set));
+        Ok(())
+    }
+
+    fn compile_begin(&mut self, name: &str) -> Result<()> {
+        assert!(self.compiler.is_none());
+        self.compiler = Some(Compiler::new(name));
+        Ok(())
+    }
+
+    fn compile_end(&mut self) -> Result<()> {
+        self.compiler.take().unwrap().finish(self);
         Ok(())
     }
 
@@ -162,6 +192,25 @@ impl Dictionary {
         word.parse::<BigInt>()
             .ok()
             .map(|x| Arc::new(x) as Arc<dyn Word>)
+    }
+}
+
+impl Compiler {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.into(),
+            words: Default::default(),
+        }
+    }
+
+    pub fn push(&mut self, word: Arc<dyn Word>) {
+        self.words.push(word);
+    }
+
+    pub fn finish(self, vm: &mut Vm) {
+        let x: Box<[_]> = self.words.into();
+        let x = with(move |vm| x.iter().try_for_each(|x| vm.eval(x)));
+        vm.define(&self.name, x);
     }
 }
 
@@ -240,7 +289,7 @@ impl Word for NameSpace {
     fn eval(&self, vm: &mut Vm) -> Result<()> {
         let word = vm.read_word()?.unwrap();
         let x = self.words.get(&*word).unwrap();
-        x.eval(vm)
+        vm.eval(x)
     }
 
     fn is_immediate(&self) -> bool {
@@ -291,6 +340,31 @@ pub fn create_root_vm() -> Vm {
     vm.define("<=", with(|vm| vm.int_op2to1(|x, y| (x <= y).into())));
     vm.define(">=", with(|vm| vm.int_op2to1(|x, y| (x >= y).into())));
     vm.define(
+        "#dup",
+        with(|vm| {
+            let x = vm.int_pop()?;
+            vm.int_push(x.clone())?;
+            vm.int_push(x)
+        }),
+    );
+    vm.define(
+        "#drop",
+        with(|vm| {
+            let _ = vm.int_pop()?;
+            Ok(())
+        }),
+    );
+    vm.define(
+        "#swap",
+        with(|vm| {
+            let x = vm.int_pop()?;
+            let y = vm.int_pop()?;
+            vm.int_push(x)?;
+            vm.int_push(y)?;
+            Ok(())
+        }),
+    );
+    vm.define(
         "@dup",
         with(|vm| {
             let x = vm.obj_pop()?;
@@ -305,6 +379,14 @@ pub fn create_root_vm() -> Vm {
             Ok(())
         }),
     );
+    vm.define(
+        ":",
+        with_imm(|vm| {
+            let name = vm.read_word()?.unwrap();
+            vm.compile_begin(&name)
+        }),
+    );
+    vm.define(";", with_imm(|vm| vm.compile_end()));
     vm.define(
         "Window",
         dict(&[(

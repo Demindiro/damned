@@ -3,14 +3,18 @@ Global integer cursor-y
 
 Sys Fs read
 '\n' String split
-0 0 Sys Terminal set-cursor
-@dup 0 Object Refs get Window print
-1 1 Sys Terminal set-cursor
-@dup 1 Object Refs get Window print
-0 2 Sys Terminal set-cursor
-@dup 2 Object Refs get Window print
-1 3 Sys Terminal set-cursor
-@dup 3 Object Refs get Window print
-0 4 Sys Terminal set-cursor
-@dup 4 Object Refs get Window print
+
+: f
+	#dup 0 #swap Sys Terminal set-cursor
+	@dup Object Refs get Window print
+	;
+
+0 f
+1 f
+2 f
+3 f
+4 f
+5 f
+6 f
+
 Sys Terminal wait
