@@ -5,6 +5,7 @@ use crossterm::{
 };
 use num::BigInt;
 use std::{
+    cell::Cell,
     collections::{BTreeMap, VecDeque},
     io::{Read, Write},
     rc::Rc,
@@ -66,7 +67,7 @@ struct GlobalGet<T>(Rc<Mutex<T>>);
 struct GlobalSet<T>(Rc<Mutex<T>>);
 
 struct Stack<T> {
-    stack: Vec<T>,
+    stack: Cell<Vec<T>>,
 }
 
 impl Vm {
@@ -194,16 +195,26 @@ impl Compiler {
 }
 
 impl<T> Stack<T> {
-    fn push(&mut self, value: T) -> Result<()> {
-        self.stack.push(value);
+    fn with<F, E>(&self, f: F) -> E
+    where
+        F: FnOnce(&mut Vec<T>) -> E,
+    {
+        let mut v = self.stack.take();
+        let res = (f)(&mut v);
+        self.stack.set(v);
+        res
+    }
+
+    fn push(&self, value: T) -> Result<()> {
+        self.with(|v| v.push(value));
         Ok(())
     }
 
-    fn pop(&mut self) -> Result<T> {
-        self.stack.pop().ok_or_else(|| todo!())
+    fn pop(&self) -> Result<T> {
+        self.with(|v| v.pop().ok_or_else(|| todo!()))
     }
 
-    fn op2to1<F>(&mut self, f: F) -> Result<()>
+    fn op2to1<F>(&self, f: F) -> Result<()>
     where
         F: FnOnce(T, T) -> T,
     {
@@ -380,7 +391,6 @@ pub fn create_root_vm() -> Vm {
                     (
                         "set-cursor",
                         with(move |vm| {
-                            let mut int = int.lock().unwrap();
                             let y = int.pop()?;
                             let x = int.pop()?;
                             let y = u16::try_from(y)?;
@@ -409,7 +419,7 @@ pub fn create_root_vm() -> Vm {
             (
                 "decimal",
                 with(move |vm| {
-                    let x = int2.lock().unwrap().pop()?;
+                    let x = int2.pop()?;
                     vm.obj_push(x.to_string().into())?;
                     Ok(())
                 }),
@@ -417,7 +427,7 @@ pub fn create_root_vm() -> Vm {
             (
                 "split",
                 with(move |vm| {
-                    let x = int.lock().unwrap().pop()?;
+                    let x = int.pop()?;
                     let x = u32::try_from(x).unwrap();
                     let x = char::from_u32(x).unwrap();
                     let y = vm.obj_pop()?;
@@ -438,7 +448,6 @@ pub fn create_root_vm() -> Vm {
                 dict(&[(
                     "get",
                     with(move |vm| {
-                        let mut int = int.lock().unwrap();
                         let i = int.pop()?;
                         let i = usize::try_from(i).unwrap();
                         let x = *vm.obj_pop()?.data.get(i).unwrap();
@@ -451,7 +460,7 @@ pub fn create_root_vm() -> Vm {
                 dict(&[(
                     "get",
                     with(move |vm| {
-                        let i = int2.lock().unwrap().pop()?;
+                        let i = int2.pop()?;
                         let i = usize::try_from(i).unwrap();
                         let x = vm.obj_pop()?.refs.get(i).unwrap().clone();
                         vm.obj_push(x.into())
@@ -523,23 +532,17 @@ fn define_compiler(dict: &mut Dictionary) {
     dict.define(";", with_imm(|vm| vm.compile_end()));
 }
 
-fn define_int(dict: &mut Dictionary) -> Rc<Mutex<Stack<BigInt>>> {
-    fn f<T, F>(stack: &Rc<Mutex<Stack<T>>>, dict: &mut Dictionary, name: &str, f: F)
+fn define_int(dict: &mut Dictionary) -> Rc<Stack<BigInt>> {
+    fn f<T, F>(stack: &Rc<Stack<T>>, dict: &mut Dictionary, name: &str, f: F)
     where
-        F: 'static + Fn(&mut Stack<T>) -> Result<()> + 'static,
+        F: 'static + Fn(&Stack<T>) -> Result<()> + 'static,
         // TODO why 'static?
         T: 'static,
     {
-        let mut stack: Rc<_> = stack.clone();
-        dict.define(
-            name,
-            with(move |_| {
-                let mut x = stack.lock().unwrap();
-                (f)(&mut x)
-            }),
-        );
+        let stack = stack.clone();
+        dict.define(name, with(move |_| (f)(&stack)));
     }
-    let mut stack = Rc::new(Mutex::new(Stack::<BigInt>::default()));
+    let mut stack = Rc::new(Stack::<BigInt>::default());
     let s = &mut stack;
     f(s, dict, "+", |s| s.op2to1(|x, y| x + y));
     f(s, dict, "-", |s| s.op2to1(|x, y| x - y));
@@ -566,7 +569,7 @@ fn define_int(dict: &mut Dictionary) -> Rc<Mutex<Stack<BigInt>>> {
     dict.push_alt(move |name| {
         let f = |x: BigInt| {
             let s = s.clone();
-            with(move |_| s.lock().unwrap().push(x.clone()))
+            with(move |_| s.push(x.clone()))
         };
         if name.len() > 2 && name.starts_with("'") && name.ends_with("'") {
             let mut it = name.chars().skip(1);
@@ -587,11 +590,11 @@ fn define_int(dict: &mut Dictionary) -> Rc<Mutex<Stack<BigInt>>> {
     stack
 }
 
-fn encode_event(int: &Mutex<Stack<BigInt>>, event: Event) -> Result<()> {
+fn encode_event(int: &Stack<BigInt>, event: Event) -> Result<()> {
     match event {
         Event::FocusGained => todo!(),
         Event::FocusLost => todo!(),
-        Event::Key(x) => int.lock().unwrap().push(encode_key_event(x).into()),
+        Event::Key(x) => int.push(encode_key_event(x).into()),
         Event::Mouse(x) => todo!("{x:?}"),
         Event::Paste(s) => todo!("{s:?}"),
         Event::Resize(x, y) => todo!("{x} {y}"),
