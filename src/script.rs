@@ -330,40 +330,7 @@ impl Word for GlobalSet<Object> {
 /// Create VM with all capabilities.
 pub fn create_root_vm() -> Vm {
     let mut vm = Vm::default();
-    vm.define("+", with(|vm| vm.int_op2to1(|x, y| x + y)));
-    vm.define("-", with(|vm| vm.int_op2to1(|x, y| x - y)));
-    vm.define("*", with(|vm| vm.int_op2to1(|x, y| x * y)));
-    vm.define("=", with(|vm| vm.int_op2to1(|x, y| (x == y).into())));
-    vm.define("<>", with(|vm| vm.int_op2to1(|x, y| (x != y).into())));
-    vm.define("<", with(|vm| vm.int_op2to1(|x, y| (x < y).into())));
-    vm.define(">", with(|vm| vm.int_op2to1(|x, y| (x > y).into())));
-    vm.define("<=", with(|vm| vm.int_op2to1(|x, y| (x <= y).into())));
-    vm.define(">=", with(|vm| vm.int_op2to1(|x, y| (x >= y).into())));
-    vm.define(
-        "#dup",
-        with(|vm| {
-            let x = vm.int_pop()?;
-            vm.int_push(x.clone())?;
-            vm.int_push(x)
-        }),
-    );
-    vm.define(
-        "#drop",
-        with(|vm| {
-            let _ = vm.int_pop()?;
-            Ok(())
-        }),
-    );
-    vm.define(
-        "#swap",
-        with(|vm| {
-            let x = vm.int_pop()?;
-            let y = vm.int_pop()?;
-            vm.int_push(x)?;
-            vm.int_push(y)?;
-            Ok(())
-        }),
-    );
+    define_int(&mut vm.dictionary);
     vm.define(
         "@dup",
         with(|vm| {
@@ -548,6 +515,43 @@ fn define_compiler(dict: &mut Dictionary) {
         }),
     );
     dict.define(";", with_imm(|vm| vm.compile_end()));
+}
+
+fn define_int(dict: &mut Dictionary) {
+    dict.define("+", with(|vm| vm.int_op2to1(|x, y| x + y)));
+    dict.define("-", with(|vm| vm.int_op2to1(|x, y| x - y)));
+    dict.define("*", with(|vm| vm.int_op2to1(|x, y| x * y)));
+    dict.define("=", with(|vm| vm.int_op2to1(|x, y| (x == y).into())));
+    dict.define("<>", with(|vm| vm.int_op2to1(|x, y| (x != y).into())));
+    dict.define("<", with(|vm| vm.int_op2to1(|x, y| (x < y).into())));
+    dict.define(">", with(|vm| vm.int_op2to1(|x, y| (x > y).into())));
+    dict.define("<=", with(|vm| vm.int_op2to1(|x, y| (x <= y).into())));
+    dict.define(">=", with(|vm| vm.int_op2to1(|x, y| (x >= y).into())));
+    dict.define(
+        "#dup",
+        with(|vm| {
+            let x = vm.int_pop()?;
+            vm.int_push(x.clone())?;
+            vm.int_push(x)
+        }),
+    );
+    dict.define(
+        "#drop",
+        with(|vm| {
+            let _ = vm.int_pop()?;
+            Ok(())
+        }),
+    );
+    dict.define(
+        "#swap",
+        with(|vm| {
+            let x = vm.int_pop()?;
+            let y = vm.int_pop()?;
+            vm.int_push(x)?;
+            vm.int_push(y)?;
+            Ok(())
+        }),
+    );
 }
 
 fn encode_event(vm: &mut Vm, event: Event) -> Result<()> {
