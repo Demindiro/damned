@@ -28,7 +28,7 @@ trait Word {
 
 #[derive(Default)]
 pub struct Vm {
-    stream: VecDeque<u8>,
+    streams: Vec<Box<dyn FnMut() -> Option<u8>>>,
     dictionary: Dictionary,
     compiler: Option<Compiler>,
 }
@@ -63,10 +63,6 @@ struct Stack<T> {
 }
 
 impl Vm {
-    pub fn stream_append(&mut self, bytes: &[u8]) {
-        self.stream.extend(bytes);
-    }
-
     pub fn run(&mut self) -> Result<()> {
         while let Some(x) = self.read_word()? {
             self.dictionary
@@ -88,7 +84,7 @@ impl Vm {
 
     fn read_word(&mut self) -> Result<Option<String>> {
         let mut word = vec![];
-        while let Some(x) = self.stream.pop_front() {
+        while let Some(x) = self.streams.last_mut().and_then(|x| x()) {
             if x.is_ascii_whitespace() {
                 if word.is_empty() {
                     continue;
@@ -272,11 +268,17 @@ impl Word for NameSpace {
 }
 
 /// Create VM with all capabilities.
-pub fn create_root_vm(args: &mut dyn Iterator<Item = String>) -> Vm {
+pub fn create_root_vm<A, F>(args: A, read_byte: F) -> Vm
+where
+    A: IntoIterator<Item = String>,
+    F: 'static + FnMut() -> Option<u8>,
+{
     let mut vm = Vm::default();
+    vm.streams.push(Box::new(read_byte));
     let def_int = define_int(&mut vm.dictionary);
     let def_obj = define_obj(&mut vm.dictionary, &def_int);
-    args.for_each(|x| def_obj.push(x.into()).unwrap());
+    args.into_iter()
+        .for_each(|x| def_obj.push(x.into()).unwrap());
     define_compiler(&mut vm.dictionary);
     let obj = def_obj.clone();
     vm.define(

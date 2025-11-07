@@ -28,8 +28,8 @@ fn main() {
     let _ = args.next();
     let script = args.next().unwrap();
     let script = std::fs::read(&script).unwrap();
-    let mut vm = script::create_root_vm(&mut args);
-    vm.stream_append(&script);
+    let mut script = script.into_iter();
+    let mut vm = script::create_root_vm(args, move || script.next());
 
     enable_tui();
     let hook = std::panic::take_hook();
