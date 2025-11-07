@@ -379,14 +379,7 @@ pub fn create_root_vm() -> Vm {
             Ok(())
         }),
     );
-    vm.define(
-        ":",
-        with_imm(|vm| {
-            let name = vm.read_word()?.unwrap();
-            vm.compile_begin(&name)
-        }),
-    );
-    vm.define(";", with_imm(|vm| vm.compile_end()));
+    define_compiler(&mut vm.dictionary);
     vm.define(
         "Window",
         dict(&[(
@@ -544,6 +537,17 @@ fn dict(words: &[(&str, Arc<dyn Word>)]) -> Arc<dyn Word> {
 fn new_global<T>(value: T) -> (GlobalGet<T>, GlobalSet<T>) {
     let x = Arc::new(Mutex::new(value));
     (GlobalGet(x.clone()), GlobalSet(x))
+}
+
+fn define_compiler(dict: &mut Dictionary) {
+    dict.define(
+        ":",
+        with_imm(|vm| {
+            let name = vm.read_word()?.unwrap();
+            vm.compile_begin(&name)
+        }),
+    );
+    dict.define(";", with_imm(|vm| vm.compile_end()));
 }
 
 fn encode_event(vm: &mut Vm, event: Event) -> Result<()> {
