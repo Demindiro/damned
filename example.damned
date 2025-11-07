@@ -6,7 +6,7 @@ Sys Fs read
 
 : f
 	#dup 0 #swap Sys Terminal set-cursor
-	@dup Object Refs get Window print
+	@dup @refs Window print
 	;
 
 0 f

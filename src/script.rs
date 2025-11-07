@@ -275,7 +275,7 @@ impl Word for NameSpace {
 pub fn create_root_vm(args: &mut dyn Iterator<Item = String>) -> Vm {
     let mut vm = Vm::default();
     let def_int = define_int(&mut vm.dictionary);
-    let def_obj = define_obj(&mut vm.dictionary);
+    let def_obj = define_obj(&mut vm.dictionary, &def_int);
     args.for_each(|x| def_obj.push(x.into()).unwrap());
     define_compiler(&mut vm.dictionary);
     let obj = def_obj.clone();
@@ -353,39 +353,6 @@ pub fn create_root_vm(args: &mut dyn Iterator<Item = String>) -> Vm {
                     let mut n = 0;
                     obj.push(y.split(&[x]).map(Object::from).collect())
                 }),
-            ),
-        ]),
-    );
-    let int = def_int.clone();
-    let int2 = def_int.clone();
-    let obj = def_obj.clone();
-    let obj2 = def_obj.clone();
-    vm.define(
-        "Object",
-        dict(&[
-            (
-                "Data",
-                dict(&[(
-                    "get",
-                    with(move |vm| {
-                        let i = int.pop()?;
-                        let i = usize::try_from(i).unwrap();
-                        let x = *obj.pop()?.data.get(i).unwrap();
-                        int.push(x.into())
-                    }),
-                )]),
-            ),
-            (
-                "Refs",
-                dict(&[(
-                    "get",
-                    with(move |vm| {
-                        let i = int2.pop()?;
-                        let i = usize::try_from(i).unwrap();
-                        let x = obj2.pop()?.refs.get(i).unwrap().clone();
-                        obj2.push(x.into())
-                    }),
-                )]),
             ),
         ]),
     );
@@ -517,7 +484,7 @@ fn define_int(dict: &mut Dictionary) -> Rc<Stack<BigInt>> {
     stack
 }
 
-fn define_obj(dict: &mut Dictionary) -> Rc<Stack<Object>> {
+fn define_obj(dict: &mut Dictionary, int: &Rc<Stack<BigInt>>) -> Rc<Stack<Object>> {
     fn f<T, F>(stack: &Rc<Stack<T>>, dict: &mut Dictionary, name: &str, f: F)
     where
         F: 'static + Fn(&Stack<T>) -> Result<()> + 'static,
@@ -540,6 +507,20 @@ fn define_obj(dict: &mut Dictionary) -> Rc<Stack<Object>> {
         let y = s.pop()?;
         s.push(x)?;
         s.push(y)
+    });
+    let int2 = int.clone();
+    f(s, dict, "@data", move |s| {
+        let i = int2.pop()?;
+        let i = usize::try_from(i).unwrap();
+        let x = *s.pop()?.data.get(i).unwrap();
+        int2.push(x.into())
+    });
+    let int2 = int.clone();
+    f(s, dict, "@refs", move |s| {
+        let i = int2.pop()?;
+        let i = usize::try_from(i).unwrap();
+        let x = s.pop()?.refs.get(i).unwrap().clone();
+        s.push(x.into())
     });
     stack
 }
