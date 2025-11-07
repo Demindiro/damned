@@ -9,7 +9,6 @@ use std::{
     collections::{BTreeMap, VecDeque},
     io::{Read, Write},
     rc::Rc,
-    sync::Mutex,
 };
 
 type Error = Box<dyn std::error::Error>;
@@ -59,12 +58,6 @@ struct Object {
     refs: Box<[Object]>,
 }
 
-#[derive(Clone, Debug)]
-struct GlobalGet<T>(Rc<Mutex<T>>);
-
-#[derive(Clone, Debug)]
-struct GlobalSet<T>(Rc<Mutex<T>>);
-
 struct Stack<T> {
     stack: Cell<Vec<T>>,
 }
@@ -111,18 +104,6 @@ impl Vm {
 
     fn define(&mut self, word: &str, value: Rc<dyn Word>) {
         self.dictionary.define(word, value);
-    }
-
-    fn define_global<T>(&mut self, name: &str, init: T) -> Result<()>
-    where
-        T: 'static,
-        GlobalGet<T>: Word,
-        GlobalSet<T>: Word,
-    {
-        let (get, set) = new_global(init);
-        self.dictionary.define(name, Rc::new(get));
-        self.dictionary.define(&format!("set:{name}"), Rc::new(set));
-        Ok(())
     }
 
     fn compile_begin(&mut self, name: &str) -> Result<()> {
@@ -290,40 +271,6 @@ impl Word for NameSpace {
     }
 }
 
-impl Word for GlobalGet<BigInt> {
-    fn eval(&self, vm: &mut Vm) -> Result<()> {
-        let x = self.0.lock().unwrap().clone();
-        todo!();
-        //vm.int_push(x)
-    }
-}
-
-impl Word for GlobalGet<Object> {
-    fn eval(&self, vm: &mut Vm) -> Result<()> {
-        let x = self.0.lock().unwrap().clone();
-        todo!();
-        //vm.obj_push(x)
-    }
-}
-
-impl Word for GlobalSet<BigInt> {
-    fn eval(&self, vm: &mut Vm) -> Result<()> {
-        //let x = vm.int_pop()?;
-        todo!();
-        //*self.0.lock().unwrap() = x;
-        Ok(())
-    }
-}
-
-impl Word for GlobalSet<Object> {
-    fn eval(&self, vm: &mut Vm) -> Result<()> {
-        //let x = vm.obj_pop()?;
-        todo!();
-        //*self.0.lock().unwrap() = x;
-        Ok(())
-    }
-}
-
 /// Create VM with all capabilities.
 pub fn create_root_vm(args: &mut dyn Iterator<Item = String>) -> Vm {
     let mut vm = Vm::default();
@@ -442,25 +389,7 @@ pub fn create_root_vm(args: &mut dyn Iterator<Item = String>) -> Vm {
             ),
         ]),
     );
-    vm.define(
-        "Global",
-        dict(&[
-            (
-                "integer",
-                with_imm(|vm| {
-                    let x = vm.read_word()?.unwrap();
-                    vm.define_global(&x, BigInt::default())
-                }),
-            ),
-            (
-                "object",
-                with_imm(|vm| {
-                    let x = vm.read_word()?.unwrap();
-                    vm.define_global(&x, Object::default())
-                }),
-            ),
-        ]),
-    );
+    define_global(&mut vm.dictionary, &def_int, &def_obj);
     vm
 }
 
@@ -489,11 +418,6 @@ fn dict(words: &[(&str, Rc<dyn Word>)]) -> Rc<dyn Word> {
     })
 }
 
-fn new_global<T>(value: T) -> (GlobalGet<T>, GlobalSet<T>) {
-    let x = Rc::new(Mutex::new(value));
-    (GlobalGet(x.clone()), GlobalSet(x))
-}
-
 fn define_compiler(dict: &mut Dictionary) {
     dict.define(
         ":",
@@ -503,6 +427,36 @@ fn define_compiler(dict: &mut Dictionary) {
         }),
     );
     dict.define(";", with_imm(|vm| vm.compile_end()));
+}
+
+fn define_global(d: &mut Dictionary, int: &Rc<Stack<BigInt>>, obj: &Rc<Stack<Object>>) {
+    fn f<T>(stack: &Rc<Stack<T>>) -> Rc<dyn Word>
+    where
+        T: 'static + Default + Clone,
+    {
+        let s = stack.clone();
+        with_imm(move |vm| {
+            let name = vm.read_word()?.unwrap();
+            let x = Rc::new(Cell::new(T::default()));
+            let x2 = x.clone();
+            let s = s.clone();
+            let s2 = s.clone();
+            vm.define(
+                &name,
+                with(move |_| {
+                    let x = x2.take();
+                    x2.set(x.clone());
+                    s2.push(x)
+                }),
+            );
+            vm.define(
+                &format!("set:{name}"),
+                with(move |_| s.pop().map(|v| x.set(v))),
+            );
+            Ok(())
+        })
+    }
+    d.define("Global", dict(&[("integer", f(int)), ("object", f(obj))]));
 }
 
 fn define_int(dict: &mut Dictionary) -> Rc<Stack<BigInt>> {
