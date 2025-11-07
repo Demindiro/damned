@@ -31,7 +31,6 @@ trait Word {
 pub struct Vm {
     stream: VecDeque<u8>,
     dictionary: Dictionary,
-    obj_stack: Vec<Object>,
     compiler: Option<Compiler>,
 }
 
@@ -85,10 +84,6 @@ impl Vm {
         Ok(())
     }
 
-    pub fn push_string(&mut self, s: &str) -> Result<()> {
-        self.obj_push(s.into())
-    }
-
     fn eval(&mut self, word: &Rc<dyn Word>) -> Result<()> {
         if let Some(c) = self.compiler.as_mut().filter(|_| !word.is_immediate()) {
             c.push(word.clone());
@@ -139,15 +134,6 @@ impl Vm {
     fn compile_end(&mut self) -> Result<()> {
         self.compiler.take().unwrap().finish(self);
         Ok(())
-    }
-
-    fn obj_push(&mut self, obj: Object) -> Result<()> {
-        self.obj_stack.push(obj);
-        Ok(())
-    }
-
-    fn obj_pop(&mut self) -> Result<Object> {
-        self.obj_stack.pop().ok_or_else(|| todo!())
     }
 }
 
@@ -315,7 +301,8 @@ impl Word for GlobalGet<BigInt> {
 impl Word for GlobalGet<Object> {
     fn eval(&self, vm: &mut Vm) -> Result<()> {
         let x = self.0.lock().unwrap().clone();
-        vm.obj_push(x)
+        todo!();
+        //vm.obj_push(x)
     }
 }
 
@@ -330,38 +317,27 @@ impl Word for GlobalSet<BigInt> {
 
 impl Word for GlobalSet<Object> {
     fn eval(&self, vm: &mut Vm) -> Result<()> {
-        let x = vm.obj_pop()?;
-        *self.0.lock().unwrap() = x;
+        //let x = vm.obj_pop()?;
+        todo!();
+        //*self.0.lock().unwrap() = x;
         Ok(())
     }
 }
 
 /// Create VM with all capabilities.
-pub fn create_root_vm() -> Vm {
+pub fn create_root_vm(args: &mut dyn Iterator<Item = String>) -> Vm {
     let mut vm = Vm::default();
     let def_int = define_int(&mut vm.dictionary);
-    vm.define(
-        "@dup",
-        with(|vm| {
-            let x = vm.obj_pop()?;
-            vm.obj_push(x.clone())?;
-            vm.obj_push(x)
-        }),
-    );
-    vm.define(
-        "@drop",
-        with(|vm| {
-            let _ = vm.obj_pop()?;
-            Ok(())
-        }),
-    );
+    let def_obj = define_obj(&mut vm.dictionary);
+    args.for_each(|x| def_obj.push(x.into()).unwrap());
     define_compiler(&mut vm.dictionary);
+    let obj = def_obj.clone();
     vm.define(
         "Window",
         dict(&[(
             "print",
-            with(|vm| {
-                let x = vm.obj_pop()?;
+            with(move |vm| {
+                let x = obj.pop()?;
                 let s = String::from_utf8_lossy(&x.data);
                 println!("{s}");
                 Ok(())
@@ -370,6 +346,7 @@ pub fn create_root_vm() -> Vm {
     );
     let int = def_int.clone();
     let int2 = def_int.clone();
+    let obj = def_obj.clone();
     vm.define(
         "Sys",
         dict(&[
@@ -377,10 +354,10 @@ pub fn create_root_vm() -> Vm {
                 "Fs",
                 dict(&[(
                     "read",
-                    with(|vm| {
-                        let x = vm.obj_pop()?;
+                    with(move |vm| {
+                        let x = obj.pop()?;
                         let x = <&str>::try_from(&x)?;
-                        vm.obj_push(std::fs::read(x)?.into())
+                        obj.push(std::fs::read(x)?.into())
                     }),
                 )]),
             ),
@@ -405,22 +382,16 @@ pub fn create_root_vm() -> Vm {
     );
     let int = def_int.clone();
     let int2 = def_int.clone();
+    let obj = def_obj.clone();
+    let obj2 = def_obj.clone();
     vm.define(
         "String",
         dict(&[
             (
-                "__debug",
-                with(|vm| {
-                    let x = vm.obj_pop()?;
-                    vm.obj_push(format!("{x:?}").into())?;
-                    Ok(())
-                }),
-            ),
-            (
                 "decimal",
                 with(move |vm| {
                     let x = int2.pop()?;
-                    vm.obj_push(x.to_string().into())?;
+                    obj2.push(x.to_string().into())?;
                     Ok(())
                 }),
             ),
@@ -430,16 +401,18 @@ pub fn create_root_vm() -> Vm {
                     let x = int.pop()?;
                     let x = u32::try_from(x).unwrap();
                     let x = char::from_u32(x).unwrap();
-                    let y = vm.obj_pop()?;
+                    let y = obj.pop()?;
                     let y = <&str>::try_from(&y)?;
                     let mut n = 0;
-                    vm.obj_push(y.split(&[x]).map(Object::from).collect())
+                    obj.push(y.split(&[x]).map(Object::from).collect())
                 }),
             ),
         ]),
     );
     let int = def_int.clone();
     let int2 = def_int.clone();
+    let obj = def_obj.clone();
+    let obj2 = def_obj.clone();
     vm.define(
         "Object",
         dict(&[
@@ -450,7 +423,7 @@ pub fn create_root_vm() -> Vm {
                     with(move |vm| {
                         let i = int.pop()?;
                         let i = usize::try_from(i).unwrap();
-                        let x = *vm.obj_pop()?.data.get(i).unwrap();
+                        let x = *obj.pop()?.data.get(i).unwrap();
                         int.push(x.into())
                     }),
                 )]),
@@ -462,8 +435,8 @@ pub fn create_root_vm() -> Vm {
                     with(move |vm| {
                         let i = int2.pop()?;
                         let i = usize::try_from(i).unwrap();
-                        let x = vm.obj_pop()?.refs.get(i).unwrap().clone();
-                        vm.obj_push(x.into())
+                        let x = obj2.pop()?.refs.get(i).unwrap().clone();
+                        obj2.push(x.into())
                     }),
                 )]),
             ),
@@ -586,6 +559,33 @@ fn define_int(dict: &mut Dictionary) -> Rc<Stack<BigInt>> {
             return Some(f(BigInt::from(c as u32)));
         }
         name.parse::<BigInt>().ok().map(f)
+    });
+    stack
+}
+
+fn define_obj(dict: &mut Dictionary) -> Rc<Stack<Object>> {
+    fn f<T, F>(stack: &Rc<Stack<T>>, dict: &mut Dictionary, name: &str, f: F)
+    where
+        F: 'static + Fn(&Stack<T>) -> Result<()> + 'static,
+        // TODO why 'static?
+        T: 'static,
+    {
+        let stack = stack.clone();
+        dict.define(name, with(move |_| (f)(&stack)));
+    }
+    let mut stack = Rc::new(Stack::<Object>::default());
+    let s = &mut stack;
+    f(s, dict, "@dup", |s| {
+        let x = s.pop()?;
+        s.push(x.clone())?;
+        s.push(x)
+    });
+    f(s, dict, "@drop", |s| s.pop().map(|_| ()));
+    f(s, dict, "@swap", |s| {
+        let x = s.pop()?;
+        let y = s.pop()?;
+        s.push(x)?;
+        s.push(y)
     });
     stack
 }

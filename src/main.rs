@@ -24,12 +24,11 @@ fn disable_tui() {
 }
 
 fn main() {
-    let mut vm = script::create_root_vm();
     let mut args = std::env::args();
     let _ = args.next();
     let script = args.next().unwrap();
-    args.for_each(|x| vm.push_string(&x).unwrap());
     let script = std::fs::read(&script).unwrap();
+    let mut vm = script::create_root_vm(&mut args);
     vm.stream_append(&script);
 
     enable_tui();
