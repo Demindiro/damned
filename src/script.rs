@@ -30,7 +30,6 @@ trait Word {
 pub struct Vm {
     stream: VecDeque<u8>,
     dictionary: Dictionary,
-    int_stack: Vec<BigInt>,
     obj_stack: Vec<Object>,
     compiler: Option<Compiler>,
 }
@@ -38,6 +37,7 @@ pub struct Vm {
 #[derive(Default)]
 struct Dictionary {
     words: BTreeMap<Box<str>, Arc<dyn Word>>,
+    alt: Option<Box<dyn Fn(&str) -> Option<Arc<dyn Word>>>>,
 }
 
 #[derive(Default)]
@@ -64,6 +64,10 @@ struct GlobalGet<T>(Arc<Mutex<T>>);
 
 #[derive(Clone, Debug)]
 struct GlobalSet<T>(Arc<Mutex<T>>);
+
+struct Stack<T> {
+    stack: Vec<T>,
+}
 
 impl Vm {
     pub fn stream_append(&mut self, bytes: &[u8]) {
@@ -137,15 +141,6 @@ impl Vm {
         Ok(())
     }
 
-    fn int_push(&mut self, int: BigInt) -> Result<()> {
-        self.int_stack.push(int);
-        Ok(())
-    }
-
-    fn int_pop(&mut self) -> Result<BigInt> {
-        self.int_stack.pop().ok_or_else(|| todo!())
-    }
-
     fn obj_push(&mut self, obj: Object) -> Result<()> {
         self.obj_stack.push(obj);
         Ok(())
@@ -153,16 +148,6 @@ impl Vm {
 
     fn obj_pop(&mut self) -> Result<Object> {
         self.obj_stack.pop().ok_or_else(|| todo!())
-    }
-
-    fn int_op2to1<F>(&mut self, f: F) -> Result<()>
-    where
-        F: FnOnce(BigInt, BigInt) -> BigInt,
-    {
-        let y = self.int_pop()?;
-        let x = self.int_pop()?;
-        self.int_push((f)(x, y))?;
-        Ok(())
     }
 }
 
@@ -175,23 +160,18 @@ impl Dictionary {
         if let Some(x) = self.words.get(word).cloned() {
             return Some(x);
         }
-        if word.len() > 2 && word.starts_with("'") && word.ends_with("'") {
-            let mut it = word.chars().skip(1);
-            let c = match it.next().unwrap() {
-                '\\' => match it.next().unwrap() {
-                    'n' => '\n',
-                    't' => '\t',
-                    'r' => '\r',
-                    c => todo!("{c:?}"),
-                },
-                c => c,
-            };
-            assert_eq!(it.next().unwrap(), '\'');
-            return Some(Arc::new(BigInt::from(c as u32)));
-        }
-        word.parse::<BigInt>()
-            .ok()
-            .map(|x| Arc::new(x) as Arc<dyn Word>)
+        self.alt.as_ref().and_then(|x| (x)(word))
+    }
+
+    fn push_alt<F>(&mut self, f: F)
+    where
+        F: 'static + Fn(&str) -> Option<Arc<dyn Word>>,
+    {
+        self.alt = Some(if let Some(next) = self.alt.take() {
+            Box::new(move |s| (f)(s).or_else(|| (next)(s)))
+        } else {
+            Box::new(f)
+        });
     }
 }
 
@@ -211,6 +191,34 @@ impl Compiler {
         let x: Box<[_]> = self.words.into();
         let x = with(move |vm| x.iter().try_for_each(|x| vm.eval(x)));
         vm.define(&self.name, x);
+    }
+}
+
+impl<T> Stack<T> {
+    fn push(&mut self, value: T) -> Result<()> {
+        self.stack.push(value);
+        Ok(())
+    }
+
+    fn pop(&mut self) -> Result<T> {
+        self.stack.pop().ok_or_else(|| todo!())
+    }
+
+    fn op2to1<F>(&mut self, f: F) -> Result<()>
+    where
+        F: FnOnce(T, T) -> T,
+    {
+        let y = self.pop()?;
+        let x = self.pop()?;
+        self.push((f)(x, y))
+    }
+}
+
+impl<T> Default for Stack<T> {
+    fn default() -> Self {
+        Self {
+            stack: Default::default(),
+        }
     }
 }
 
@@ -274,17 +282,6 @@ where
     }
 }
 
-impl Word for BigInt {
-    fn eval(&self, vm: &mut Vm) -> Result<()> {
-        vm.int_push(self.clone())?;
-        Ok(())
-    }
-
-    fn is_pure(&self) -> bool {
-        true
-    }
-}
-
 impl Word for NameSpace {
     fn eval(&self, vm: &mut Vm) -> Result<()> {
         let word = vm.read_word()?.unwrap();
@@ -300,7 +297,8 @@ impl Word for NameSpace {
 impl Word for GlobalGet<BigInt> {
     fn eval(&self, vm: &mut Vm) -> Result<()> {
         let x = self.0.lock().unwrap().clone();
-        vm.int_push(x)
+        todo!();
+        //vm.int_push(x)
     }
 }
 
@@ -313,8 +311,9 @@ impl Word for GlobalGet<Object> {
 
 impl Word for GlobalSet<BigInt> {
     fn eval(&self, vm: &mut Vm) -> Result<()> {
-        let x = vm.int_pop()?;
-        *self.0.lock().unwrap() = x;
+        //let x = vm.int_pop()?;
+        todo!();
+        //*self.0.lock().unwrap() = x;
         Ok(())
     }
 }
@@ -330,7 +329,7 @@ impl Word for GlobalSet<Object> {
 /// Create VM with all capabilities.
 pub fn create_root_vm() -> Vm {
     let mut vm = Vm::default();
-    define_int(&mut vm.dictionary);
+    let def_int = define_int(&mut vm.dictionary);
     vm.define(
         "@dup",
         with(|vm| {
@@ -359,6 +358,8 @@ pub fn create_root_vm() -> Vm {
             }),
         )]),
     );
+    let int = def_int.clone();
+    let int2 = def_int.clone();
     vm.define(
         "Sys",
         dict(&[
@@ -376,12 +377,13 @@ pub fn create_root_vm() -> Vm {
             (
                 "Terminal",
                 dict(&[
-                    ("wait", with(|vm| encode_event(vm, event::read()?))),
+                    ("wait", with(move |_| encode_event(&int2, event::read()?))),
                     (
                         "set-cursor",
-                        with(|vm| {
-                            let y = vm.int_pop()?;
-                            let x = vm.int_pop()?;
+                        with(move |vm| {
+                            let mut int = int.lock().unwrap();
+                            let y = int.pop()?;
+                            let x = int.pop()?;
                             let y = u16::try_from(y)?;
                             let x = u16::try_from(x)?;
                             execute!(std::io::stdout(), cursor::MoveTo(x, y))?;
@@ -392,6 +394,8 @@ pub fn create_root_vm() -> Vm {
             ),
         ]),
     );
+    let int = def_int.clone();
+    let int2 = def_int.clone();
     vm.define(
         "String",
         dict(&[
@@ -405,16 +409,16 @@ pub fn create_root_vm() -> Vm {
             ),
             (
                 "decimal",
-                with(|vm| {
-                    let x = vm.int_pop()?;
+                with(move |vm| {
+                    let x = int2.lock().unwrap().pop()?;
                     vm.obj_push(x.to_string().into())?;
                     Ok(())
                 }),
             ),
             (
                 "split",
-                with(|vm| {
-                    let x = vm.int_pop()?;
+                with(move |vm| {
+                    let x = int.lock().unwrap().pop()?;
                     let x = u32::try_from(x).unwrap();
                     let x = char::from_u32(x).unwrap();
                     let y = vm.obj_pop()?;
@@ -425,6 +429,8 @@ pub fn create_root_vm() -> Vm {
             ),
         ]),
     );
+    let int = def_int.clone();
+    let int2 = def_int.clone();
     vm.define(
         "Object",
         dict(&[
@@ -432,11 +438,12 @@ pub fn create_root_vm() -> Vm {
                 "Data",
                 dict(&[(
                     "get",
-                    with(|vm| {
-                        let i = vm.int_pop()?;
+                    with(move |vm| {
+                        let mut int = int.lock().unwrap();
+                        let i = int.pop()?;
                         let i = usize::try_from(i).unwrap();
                         let x = *vm.obj_pop()?.data.get(i).unwrap();
-                        vm.int_push(x.into())
+                        int.push(x.into())
                     }),
                 )]),
             ),
@@ -444,8 +451,8 @@ pub fn create_root_vm() -> Vm {
                 "Refs",
                 dict(&[(
                     "get",
-                    with(|vm| {
-                        let i = vm.int_pop()?;
+                    with(move |vm| {
+                        let i = int2.lock().unwrap().pop()?;
                         let i = usize::try_from(i).unwrap();
                         let x = vm.obj_pop()?.refs.get(i).unwrap().clone();
                         vm.obj_push(x.into())
@@ -517,48 +524,75 @@ fn define_compiler(dict: &mut Dictionary) {
     dict.define(";", with_imm(|vm| vm.compile_end()));
 }
 
-fn define_int(dict: &mut Dictionary) {
-    dict.define("+", with(|vm| vm.int_op2to1(|x, y| x + y)));
-    dict.define("-", with(|vm| vm.int_op2to1(|x, y| x - y)));
-    dict.define("*", with(|vm| vm.int_op2to1(|x, y| x * y)));
-    dict.define("=", with(|vm| vm.int_op2to1(|x, y| (x == y).into())));
-    dict.define("<>", with(|vm| vm.int_op2to1(|x, y| (x != y).into())));
-    dict.define("<", with(|vm| vm.int_op2to1(|x, y| (x < y).into())));
-    dict.define(">", with(|vm| vm.int_op2to1(|x, y| (x > y).into())));
-    dict.define("<=", with(|vm| vm.int_op2to1(|x, y| (x <= y).into())));
-    dict.define(">=", with(|vm| vm.int_op2to1(|x, y| (x >= y).into())));
-    dict.define(
-        "#dup",
-        with(|vm| {
-            let x = vm.int_pop()?;
-            vm.int_push(x.clone())?;
-            vm.int_push(x)
-        }),
-    );
-    dict.define(
-        "#drop",
-        with(|vm| {
-            let _ = vm.int_pop()?;
-            Ok(())
-        }),
-    );
-    dict.define(
-        "#swap",
-        with(|vm| {
-            let x = vm.int_pop()?;
-            let y = vm.int_pop()?;
-            vm.int_push(x)?;
-            vm.int_push(y)?;
-            Ok(())
-        }),
-    );
+fn define_int(dict: &mut Dictionary) -> Arc<Mutex<Stack<BigInt>>> {
+    fn f<T, F>(stack: &Arc<Mutex<Stack<T>>>, dict: &mut Dictionary, name: &str, f: F)
+    where
+        F: 'static + Fn(&mut Stack<T>) -> Result<()> + 'static,
+        // TODO why 'static?
+        T: 'static,
+    {
+        let mut stack: Arc<_> = stack.clone();
+        dict.define(
+            name,
+            with(move |_| {
+                let mut x = stack.lock().unwrap();
+                (f)(&mut x)
+            }),
+        );
+    }
+    let mut stack = Arc::new(Mutex::new(Stack::<BigInt>::default()));
+    let s = &mut stack;
+    f(s, dict, "+", |s| s.op2to1(|x, y| x + y));
+    f(s, dict, "-", |s| s.op2to1(|x, y| x - y));
+    f(s, dict, "*", |s| s.op2to1(|x, y| x * y));
+    f(s, dict, "=", |s| s.op2to1(|x, y| (x == y).into()));
+    f(s, dict, "<>", |s| s.op2to1(|x, y| (x != y).into()));
+    f(s, dict, "<", |s| s.op2to1(|x, y| (x < y).into()));
+    f(s, dict, ">", |s| s.op2to1(|x, y| (x > y).into()));
+    f(s, dict, "<=", |s| s.op2to1(|x, y| (x <= y).into()));
+    f(s, dict, ">=", |s| s.op2to1(|x, y| (x >= y).into()));
+    f(s, dict, "#dup", |s| {
+        let x = s.pop()?;
+        s.push(x.clone())?;
+        s.push(x)
+    });
+    f(s, dict, "#drop", |s| s.pop().map(|_| ()));
+    f(s, dict, "#swap", |s| {
+        let x = s.pop()?;
+        let y = s.pop()?;
+        s.push(x)?;
+        s.push(y)
+    });
+    let s = stack.clone();
+    dict.push_alt(move |name| {
+        let f = |x: BigInt| {
+            let s = s.clone();
+            with(move |_| s.lock().unwrap().push(x.clone()))
+        };
+        if name.len() > 2 && name.starts_with("'") && name.ends_with("'") {
+            let mut it = name.chars().skip(1);
+            let c = match it.next().unwrap() {
+                '\\' => match it.next().unwrap() {
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    c => todo!("{c:?}"),
+                },
+                c => c,
+            };
+            assert_eq!(it.next().unwrap(), '\'');
+            return Some(f(BigInt::from(c as u32)));
+        }
+        name.parse::<BigInt>().ok().map(f)
+    });
+    stack
 }
 
-fn encode_event(vm: &mut Vm, event: Event) -> Result<()> {
+fn encode_event(int: &Mutex<Stack<BigInt>>, event: Event) -> Result<()> {
     match event {
         Event::FocusGained => todo!(),
         Event::FocusLost => todo!(),
-        Event::Key(x) => vm.int_push(encode_key_event(x).into()),
+        Event::Key(x) => int.lock().unwrap().push(encode_key_event(x).into()),
         Event::Mouse(x) => todo!("{x:?}"),
         Event::Paste(s) => todo!("{s:?}"),
         Event::Resize(x, y) => todo!("{x} {y}"),
