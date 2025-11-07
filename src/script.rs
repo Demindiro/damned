@@ -7,7 +7,7 @@ use num::BigInt;
 use std::{
     collections::{BTreeMap, VecDeque},
     io::{Read, Write},
-    sync::Arc,
+    rc::Rc,
     sync::Mutex,
 };
 
@@ -36,19 +36,19 @@ pub struct Vm {
 
 #[derive(Default)]
 struct Dictionary {
-    words: BTreeMap<Box<str>, Arc<dyn Word>>,
-    alt: Option<Box<dyn Fn(&str) -> Option<Arc<dyn Word>>>>,
+    words: BTreeMap<Box<str>, Rc<dyn Word>>,
+    alt: Option<Box<dyn Fn(&str) -> Option<Rc<dyn Word>>>>,
 }
 
 #[derive(Default)]
 struct NameSpace {
-    words: BTreeMap<Box<str>, Arc<dyn Word>>,
+    words: BTreeMap<Box<str>, Rc<dyn Word>>,
 }
 
 #[derive(Default)]
 struct Compiler {
     name: Box<str>,
-    words: Vec<Arc<dyn Word>>,
+    words: Vec<Rc<dyn Word>>,
 }
 
 struct WordFn<const IMMEDIATE: bool, F>(F);
@@ -60,10 +60,10 @@ struct Object {
 }
 
 #[derive(Clone, Debug)]
-struct GlobalGet<T>(Arc<Mutex<T>>);
+struct GlobalGet<T>(Rc<Mutex<T>>);
 
 #[derive(Clone, Debug)]
-struct GlobalSet<T>(Arc<Mutex<T>>);
+struct GlobalSet<T>(Rc<Mutex<T>>);
 
 struct Stack<T> {
     stack: Vec<T>,
@@ -88,7 +88,7 @@ impl Vm {
         self.obj_push(s.into())
     }
 
-    fn eval(&mut self, word: &Arc<dyn Word>) -> Result<()> {
+    fn eval(&mut self, word: &Rc<dyn Word>) -> Result<()> {
         if let Some(c) = self.compiler.as_mut().filter(|_| !word.is_immediate()) {
             c.push(word.clone());
         } else {
@@ -113,7 +113,7 @@ impl Vm {
             .transpose()
     }
 
-    fn define(&mut self, word: &str, value: Arc<dyn Word>) {
+    fn define(&mut self, word: &str, value: Rc<dyn Word>) {
         self.dictionary.define(word, value);
     }
 
@@ -124,9 +124,8 @@ impl Vm {
         GlobalSet<T>: Word,
     {
         let (get, set) = new_global(init);
-        self.dictionary.define(name, Arc::new(get));
-        self.dictionary
-            .define(&format!("set:{name}"), Arc::new(set));
+        self.dictionary.define(name, Rc::new(get));
+        self.dictionary.define(&format!("set:{name}"), Rc::new(set));
         Ok(())
     }
 
@@ -152,11 +151,11 @@ impl Vm {
 }
 
 impl Dictionary {
-    fn define(&mut self, word: &str, value: Arc<dyn Word>) {
+    fn define(&mut self, word: &str, value: Rc<dyn Word>) {
         self.words.insert(word.into(), value);
     }
 
-    fn get(&self, word: &str) -> Option<Arc<dyn Word>> {
+    fn get(&self, word: &str) -> Option<Rc<dyn Word>> {
         if let Some(x) = self.words.get(word).cloned() {
             return Some(x);
         }
@@ -165,7 +164,7 @@ impl Dictionary {
 
     fn push_alt<F>(&mut self, f: F)
     where
-        F: 'static + Fn(&str) -> Option<Arc<dyn Word>>,
+        F: 'static + Fn(&str) -> Option<Rc<dyn Word>>,
     {
         self.alt = Some(if let Some(next) = self.alt.take() {
             Box::new(move |s| (f)(s).or_else(|| (next)(s)))
@@ -183,7 +182,7 @@ impl Compiler {
         }
     }
 
-    pub fn push(&mut self, word: Arc<dyn Word>) {
+    pub fn push(&mut self, word: Rc<dyn Word>) {
         self.words.push(word);
     }
 
@@ -484,23 +483,23 @@ pub fn create_root_vm() -> Vm {
 }
 
 /// Create a word from a closure.
-fn with<F>(f: F) -> Arc<dyn Word>
+fn with<F>(f: F) -> Rc<dyn Word>
 where
     F: 'static + Fn(&mut Vm) -> Result<()>,
 {
-    Arc::new(WordFn::<false, F>(f))
+    Rc::new(WordFn::<false, F>(f))
 }
 
 /// Create an immediate word from a closure.
-fn with_imm<F>(f: F) -> Arc<dyn Word>
+fn with_imm<F>(f: F) -> Rc<dyn Word>
 where
     F: 'static + Fn(&mut Vm) -> Result<()>,
 {
-    Arc::new(WordFn::<true, F>(f))
+    Rc::new(WordFn::<true, F>(f))
 }
 
-fn dict(words: &[(&str, Arc<dyn Word>)]) -> Arc<dyn Word> {
-    Arc::new(NameSpace {
+fn dict(words: &[(&str, Rc<dyn Word>)]) -> Rc<dyn Word> {
+    Rc::new(NameSpace {
         words: words
             .iter()
             .map(|(k, v)| (Box::from(*k), v.clone()))
@@ -509,7 +508,7 @@ fn dict(words: &[(&str, Arc<dyn Word>)]) -> Arc<dyn Word> {
 }
 
 fn new_global<T>(value: T) -> (GlobalGet<T>, GlobalSet<T>) {
-    let x = Arc::new(Mutex::new(value));
+    let x = Rc::new(Mutex::new(value));
     (GlobalGet(x.clone()), GlobalSet(x))
 }
 
@@ -524,14 +523,14 @@ fn define_compiler(dict: &mut Dictionary) {
     dict.define(";", with_imm(|vm| vm.compile_end()));
 }
 
-fn define_int(dict: &mut Dictionary) -> Arc<Mutex<Stack<BigInt>>> {
-    fn f<T, F>(stack: &Arc<Mutex<Stack<T>>>, dict: &mut Dictionary, name: &str, f: F)
+fn define_int(dict: &mut Dictionary) -> Rc<Mutex<Stack<BigInt>>> {
+    fn f<T, F>(stack: &Rc<Mutex<Stack<T>>>, dict: &mut Dictionary, name: &str, f: F)
     where
         F: 'static + Fn(&mut Stack<T>) -> Result<()> + 'static,
         // TODO why 'static?
         T: 'static,
     {
-        let mut stack: Arc<_> = stack.clone();
+        let mut stack: Rc<_> = stack.clone();
         dict.define(
             name,
             with(move |_| {
@@ -540,7 +539,7 @@ fn define_int(dict: &mut Dictionary) -> Arc<Mutex<Stack<BigInt>>> {
             }),
         );
     }
-    let mut stack = Arc::new(Mutex::new(Stack::<BigInt>::default()));
+    let mut stack = Rc::new(Mutex::new(Stack::<BigInt>::default()));
     let s = &mut stack;
     f(s, dict, "+", |s| s.op2to1(|x, y| x + y));
     f(s, dict, "-", |s| s.op2to1(|x, y| x - y));
