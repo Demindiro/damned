@@ -21,7 +21,6 @@ trait Word {
 #[derive(Default)]
 struct Vm {
     dictionary: Dictionary,
-    compiler: Option<Compiler>,
 }
 
 #[derive(Default)]
@@ -35,11 +34,12 @@ struct NameSpace {
     words: BTreeMap<Box<str>, Rc<dyn Word>>,
 }
 
-#[derive(Default)]
-struct Compiler {
+struct CompilerData {
     name: Box<str>,
     words: Vec<Rc<dyn Word>>,
 }
+
+type Compiler = Rc<RefCell<Option<CompilerData>>>;
 
 struct WordFn<F>(F);
 
@@ -60,17 +60,6 @@ impl Vm {
 
     fn define(&mut self, word: &str, value: Rc<dyn Word>) {
         self.dictionary.define(word, value);
-    }
-
-    fn compile_begin(&mut self, name: &str) -> Result<()> {
-        assert!(self.compiler.is_none());
-        self.compiler = Some(Compiler::new(name));
-        Ok(())
-    }
-
-    fn compile_end(&mut self) -> Result<()> {
-        self.compiler.take().unwrap().finish(self);
-        Ok(())
     }
 }
 
@@ -98,7 +87,7 @@ impl Dictionary {
     }
 }
 
-impl Compiler {
+impl CompilerData {
     pub fn new(name: &str) -> Self {
         Self {
             name: name.into(),
@@ -110,10 +99,11 @@ impl Compiler {
         self.words.push(word);
     }
 
-    pub fn finish(self, vm: &mut Vm) {
-        let x: Box<[_]> = self.words.into();
-        let x = with(move |vm| x.iter().try_for_each(|x| vm.eval(x)));
-        vm.define(&self.name, x);
+    pub fn finish(slf: Compiler, vm: &mut Vm) {
+        let c = slf.borrow_mut().take().unwrap();
+        let x: Box<[_]> = c.words.into();
+        let x = with(&slf, move |vm| x.iter().try_for_each(|x| vm.eval(x)));
+        vm.define(&c.name, x);
     }
 }
 
@@ -236,11 +226,11 @@ where
     });
 
     let mut vm = Vm::default();
-    let def_int = define_int(&mut vm.dictionary);
-    let def_obj = define_obj(&mut vm.dictionary, &def_int);
+    let comp = &define_compiler(read_word.clone(), &mut vm.dictionary);
+    let def_int = define_int(comp, &mut vm.dictionary);
+    let def_obj = define_obj(comp, &mut vm.dictionary, &def_int);
     args.into_iter()
         .for_each(|x| def_obj.push(x.into()).unwrap());
-    define_compiler(read_word.clone(), &mut vm.dictionary);
     let obj = def_obj.clone();
     vm.define(
         "Window",
@@ -248,7 +238,7 @@ where
             read_word.clone(),
             &[(
                 "print",
-                with(move |vm| {
+                with(comp, move |vm| {
                     let x = obj.pop()?;
                     let s = String::from_utf8_lossy(&x.data);
                     println!("{s}");
@@ -271,7 +261,7 @@ where
                         read_word.clone(),
                         &[(
                             "read",
-                            with(move |vm| {
+                            with(comp, move |vm| {
                                 let x = obj.pop()?;
                                 let x = <&str>::try_from(&x)?;
                                 obj.push(std::fs::read(x)?.into())
@@ -284,10 +274,13 @@ where
                     dict(
                         read_word.clone(),
                         &[
-                            ("wait", with(move |_| encode_event(&int2, event::read()?))),
+                            (
+                                "wait",
+                                with(comp, move |_| encode_event(&int2, event::read()?)),
+                            ),
                             (
                                 "set-cursor",
-                                with(move |vm| {
+                                with(comp, move |vm| {
                                     let y = int.pop()?;
                                     let x = int.pop()?;
                                     let y = u16::try_from(y)?;
@@ -313,7 +306,7 @@ where
             &[
                 (
                     "decimal",
-                    with(move |vm| {
+                    with(comp, move |vm| {
                         let x = int2.pop()?;
                         obj2.push(x.to_string().into())?;
                         Ok(())
@@ -321,7 +314,7 @@ where
                 ),
                 (
                     "split",
-                    with(move |vm| {
+                    with(comp, move |vm| {
                         let x = int.pop()?;
                         let x = u32::try_from(x).unwrap();
                         let x = char::from_u32(x).unwrap();
@@ -334,7 +327,7 @@ where
             ],
         ),
     );
-    define_global(read_word.clone(), &mut vm.dictionary, &def_int, &def_obj);
+    define_global(comp, &read_word, &mut vm.dictionary, &def_int, &def_obj);
 
     move |s| {
         if !s.is_empty() {
@@ -353,20 +346,20 @@ where
 }
 
 /// Create a word from a closure.
-fn with<F>(f: F) -> Rc<dyn Word>
+fn with<F>(compiler: &Compiler, f: F) -> Rc<dyn Word>
 where
     F: 'static + Fn(&mut Vm) -> Result<()>,
 {
-    fn dyn_with(f: Rc<dyn Word>) -> Rc<dyn Word> {
+    fn dyn_with(compiler: Compiler, f: Rc<dyn Word>) -> Rc<dyn Word> {
         with_imm(move |vm: &mut Vm| {
-            if let Some(c) = vm.compiler.as_mut() {
+            if let Some(c) = compiler.borrow_mut().as_mut() {
                 Ok(c.push(f.clone()))
             } else {
                 f.eval(vm)
             }
         })
     }
-    dyn_with(with_imm(f))
+    dyn_with(compiler.clone(), with_imm(f))
 }
 
 /// Create an immediate word from a closure.
@@ -392,33 +385,46 @@ where
     })
 }
 
-fn define_compiler<F>(read_word: Rc<F>, dict: &mut Dictionary)
+fn define_compiler<F>(read_word: Rc<F>, dict: &mut Dictionary) -> Compiler
 where
     F: 'static + Fn() -> Result<Option<String>>,
 {
+    let mut compiler = Compiler::default();
+    let c = compiler.clone();
     dict.define(
         ":",
         with_imm(move |vm| {
             let name = read_word()?.unwrap();
-            vm.compile_begin(&name)
+            let mut c = c.borrow_mut();
+            assert!(c.is_none(), "todo: already compiling");
+            *c = Some(CompilerData::new(&name));
+            Ok(())
         }),
     );
-    dict.define(";", with_imm(|vm| vm.compile_end()));
+    let c = compiler.clone();
+    dict.define(
+        ";",
+        with_imm(move |vm| Ok(CompilerData::finish(c.clone(), vm))),
+    );
+    compiler
 }
 
 fn define_global<F>(
-    read_word: Rc<F>,
+    comp: &Compiler,
+    read_word: &Rc<F>,
     d: &mut Dictionary,
     int: &Rc<Stack<BigInt>>,
     obj: &Rc<Stack<Object>>,
 ) where
     F: 'static + Clone + Fn() -> Result<Option<String>>,
 {
-    fn f<T, F>(read_word: Rc<F>, stack: &Rc<Stack<T>>) -> Rc<dyn Word>
+    fn f<T, F>(comp: &Compiler, read_word: &Rc<F>, stack: &Rc<Stack<T>>) -> Rc<dyn Word>
     where
         F: 'static + Fn() -> Result<Option<String>>,
         T: 'static + Default + Clone,
     {
+        let comp = comp.clone();
+        let read_word = read_word.clone();
         let s = stack.clone();
         with_imm(move |vm| {
             let name = read_word()?.unwrap();
@@ -428,7 +434,7 @@ fn define_global<F>(
             let s2 = s.clone();
             vm.define(
                 &name,
-                with(move |_| {
+                with(&comp, move |_| {
                     let x = x2.take();
                     x2.set(x.clone());
                     s2.push(x)
@@ -436,28 +442,28 @@ fn define_global<F>(
             );
             vm.define(
                 &format!("set:{name}"),
-                with(move |_| s.pop().map(|v| x.set(v))),
+                with(&comp, move |_| s.pop().map(|v| x.set(v))),
             );
             Ok(())
         })
     }
-    let int = ("integer", f(read_word.clone(), int));
-    let obj = ("object", f(read_word.clone(), obj));
-    d.define("Global", dict(read_word, &[int, obj]));
+    let int = ("integer", f(comp, read_word, int));
+    let obj = ("object", f(comp, read_word, obj));
+    d.define("Global", dict(read_word.clone(), &[int, obj]));
 }
 
-fn define_int(dict: &mut Dictionary) -> Rc<Stack<BigInt>> {
-    fn f<T, F>(stack: &Rc<Stack<T>>, dict: &mut Dictionary, name: &str, f: F)
+fn define_int(comp: &Compiler, dict: &mut Dictionary) -> Rc<Stack<BigInt>> {
+    fn f<T, F>((comp, stack): (&Compiler, &Rc<Stack<T>>), dict: &mut Dictionary, name: &str, f: F)
     where
         F: 'static + Fn(&Stack<T>) -> Result<()> + 'static,
         // TODO why 'static?
         T: 'static,
     {
         let stack = stack.clone();
-        dict.define(name, with(move |_| (f)(&stack)));
+        dict.define(name, with(comp, move |_| (f)(&stack)));
     }
-    let mut stack = Rc::new(Stack::<BigInt>::default());
-    let s = &mut stack;
+    let stack = Rc::new(Stack::<BigInt>::default());
+    let s = (comp, &stack);
     f(s, dict, "+", |s| s.op2to1(|x, y| x + y));
     f(s, dict, "-", |s| s.op2to1(|x, y| x - y));
     f(s, dict, "*", |s| s.op2to1(|x, y| x * y));
@@ -480,10 +486,11 @@ fn define_int(dict: &mut Dictionary) -> Rc<Stack<BigInt>> {
         s.push(y)
     });
     let s = stack.clone();
+    let comp = comp.clone();
     dict.push_alt(move |name| {
         let f = |x: BigInt| {
             let s = s.clone();
-            with(move |_| s.push(x.clone()))
+            with(&comp, move |_| s.push(x.clone()))
         };
         if name.len() > 2 && name.starts_with("'") && name.ends_with("'") {
             let mut it = name.chars().skip(1);
@@ -504,18 +511,22 @@ fn define_int(dict: &mut Dictionary) -> Rc<Stack<BigInt>> {
     stack
 }
 
-fn define_obj(dict: &mut Dictionary, int: &Rc<Stack<BigInt>>) -> Rc<Stack<Object>> {
-    fn f<T, F>(stack: &Rc<Stack<T>>, dict: &mut Dictionary, name: &str, f: F)
+fn define_obj(
+    comp: &Compiler,
+    dict: &mut Dictionary,
+    int: &Rc<Stack<BigInt>>,
+) -> Rc<Stack<Object>> {
+    fn f<T, F>((comp, stack): (&Compiler, &Rc<Stack<T>>), dict: &mut Dictionary, name: &str, f: F)
     where
         F: 'static + Fn(&Stack<T>) -> Result<()> + 'static,
         // TODO why 'static?
         T: 'static,
     {
         let stack = stack.clone();
-        dict.define(name, with(move |_| (f)(&stack)));
+        dict.define(name, with(comp, move |_| (f)(&stack)));
     }
-    let mut stack = Rc::new(Stack::<Object>::default());
-    let s = &mut stack;
+    let stack = Rc::new(Stack::<Object>::default());
+    let s = (comp, &stack);
     f(s, dict, "@dup", |s| {
         let x = s.pop()?;
         s.push(x.clone())?;
