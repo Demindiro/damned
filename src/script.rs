@@ -14,31 +14,27 @@ use std::{
 type Error = Box<dyn std::error::Error>;
 type Result<T> = core::result::Result<T, Error>;
 
-trait Word {
-    fn eval(&self) -> Result<()>;
-}
+type Word = Rc<dyn Fn() -> Result<()>>;
 
 #[derive(Default)]
 struct DictionaryData {
-    words: BTreeMap<Box<str>, Rc<dyn Word>>,
-    alt: Option<Box<dyn Fn(&str) -> Option<Rc<dyn Word>>>>,
+    words: BTreeMap<Box<str>, Word>,
+    alt: Option<Box<dyn Fn(&str) -> Option<Word>>>,
 }
 
 type Dictionary = Rc<RefCell<DictionaryData>>;
 
 #[derive(Default)]
 struct NameSpace {
-    words: BTreeMap<Box<str>, Rc<dyn Word>>,
+    words: BTreeMap<Box<str>, Word>,
 }
 
 struct CompilerData {
     name: Box<str>,
-    words: Vec<Rc<dyn Word>>,
+    words: Vec<Word>,
 }
 
 type Compiler = Rc<RefCell<Option<CompilerData>>>;
-
-struct WordFn<F>(F);
 
 #[derive(Clone, Debug, Default)]
 struct Object {
@@ -51,11 +47,11 @@ struct Stack<T> {
 }
 
 impl DictionaryData {
-    fn define(&mut self, word: &str, value: Rc<dyn Word>) {
+    fn define(&mut self, word: &str, value: Word) {
         self.words.insert(word.into(), value);
     }
 
-    fn get(&self, word: &str) -> Option<Rc<dyn Word>> {
+    fn get(&self, word: &str) -> Option<Word> {
         if let Some(x) = self.words.get(word).cloned() {
             return Some(x);
         }
@@ -64,7 +60,7 @@ impl DictionaryData {
 
     fn push_alt<F>(&mut self, f: F)
     where
-        F: 'static + Fn(&str) -> Option<Rc<dyn Word>>,
+        F: 'static + Fn(&str) -> Option<Word>,
     {
         self.alt = Some(if let Some(next) = self.alt.take() {
             Box::new(move |s| (f)(s).or_else(|| (next)(s)))
@@ -82,14 +78,14 @@ impl CompilerData {
         }
     }
 
-    pub fn push(&mut self, word: Rc<dyn Word>) {
+    pub fn push(&mut self, word: Word) {
         self.words.push(word);
     }
 
     pub fn finish(slf: Compiler, dict: &mut DictionaryData) {
         let c = slf.borrow_mut().take().unwrap();
         let x: Box<[_]> = c.words.into();
-        let x = with(&slf, move || x.iter().try_for_each(|x| x.eval()));
+        let x = with(&slf, move || x.iter().try_for_each(|x| (x)()));
         dict.define(&c.name, x);
     }
 }
@@ -176,15 +172,6 @@ impl<'a> TryFrom<&'a Object> for &'a str {
 
     fn try_from(obj: &'a Object) -> core::result::Result<Self, Self::Error> {
         core::str::from_utf8(&obj.data)
-    }
-}
-
-impl<F> Word for WordFn<F>
-where
-    F: Fn() -> Result<()>,
-{
-    fn eval(&self) -> Result<()> {
-        (self.0)()
     }
 }
 
@@ -324,23 +311,23 @@ where
         }
         while let Some(x) = read_word()? {
             let x = dictionary.borrow().get(&x).ok_or_else(|| todo!("{x}"))?;
-            x.eval()?;
+            (x)()?;
         }
         Ok(())
     }
 }
 
 /// Create a word from a closure.
-fn with<F>(compiler: &Compiler, f: F) -> Rc<dyn Word>
+fn with<F>(compiler: &Compiler, f: F) -> Word
 where
     F: 'static + Fn() -> Result<()>,
 {
-    fn dyn_with(compiler: Compiler, f: Rc<dyn Word>) -> Rc<dyn Word> {
+    fn dyn_with(compiler: Compiler, f: Word) -> Word {
         with_imm(move || {
             if let Some(c) = compiler.borrow_mut().as_mut() {
                 Ok(c.push(f.clone()))
             } else {
-                f.eval()
+                (f)()
             }
         })
     }
@@ -348,14 +335,14 @@ where
 }
 
 /// Create an immediate word from a closure.
-fn with_imm<F>(f: F) -> Rc<dyn Word>
+fn with_imm<F>(f: F) -> Word
 where
     F: 'static + Fn() -> Result<()>,
 {
-    Rc::new(WordFn::<F>(f))
+    Rc::new(f)
 }
 
-fn dict<F>(read_word: Rc<F>, words: &[(&str, Rc<dyn Word>)]) -> Rc<dyn Word>
+fn dict<F>(read_word: Rc<F>, words: &[(&str, Word)]) -> Word
 where
     F: 'static + Fn() -> Result<Option<String>>,
 {
@@ -366,7 +353,7 @@ where
     with_imm(move || {
         let word = read_word()?.unwrap();
         let x = words.get(&*word).unwrap();
-        x.eval()
+        (x)()
     })
 }
 
@@ -404,12 +391,7 @@ fn define_global<F>(
 ) where
     F: 'static + Clone + Fn() -> Result<Option<String>>,
 {
-    fn f<T, F>(
-        comp: &Compiler,
-        d: &Dictionary,
-        read_word: &Rc<F>,
-        stack: &Rc<Stack<T>>,
-    ) -> Rc<dyn Word>
+    fn f<T, F>(comp: &Compiler, d: &Dictionary, read_word: &Rc<F>, stack: &Rc<Stack<T>>) -> Word
     where
         F: 'static + Fn() -> Result<Option<String>>,
         T: 'static + Default + Clone,
