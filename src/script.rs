@@ -15,11 +15,8 @@ type Error = Box<dyn std::error::Error>;
 type Result<T> = core::result::Result<T, Error>;
 
 trait Word {
-    fn eval(&self, vm: &mut Vm) -> Result<()>;
+    fn eval(&self) -> Result<()>;
 }
-
-#[derive(Default)]
-struct Vm {}
 
 #[derive(Default)]
 struct DictionaryData {
@@ -92,7 +89,7 @@ impl CompilerData {
     pub fn finish(slf: Compiler, dict: &mut DictionaryData) {
         let c = slf.borrow_mut().take().unwrap();
         let x: Box<[_]> = c.words.into();
-        let x = with(&slf, move |vm| x.iter().try_for_each(|x| x.eval(vm)));
+        let x = with(&slf, move || x.iter().try_for_each(|x| x.eval()));
         dict.define(&c.name, x);
     }
 }
@@ -184,10 +181,10 @@ impl<'a> TryFrom<&'a Object> for &'a str {
 
 impl<F> Word for WordFn<F>
 where
-    F: Fn(&mut Vm) -> Result<()>,
+    F: Fn() -> Result<()>,
 {
-    fn eval(&self, vm: &mut Vm) -> Result<()> {
-        (self.0)(vm)
+    fn eval(&self) -> Result<()> {
+        (self.0)()
     }
 }
 
@@ -216,7 +213,6 @@ where
             .transpose()
     });
 
-    let mut vm = Vm::default();
     let comp = &define_compiler(read_word.clone(), &dictionary);
     let def_int = define_int(comp, &mut dictionary.borrow_mut());
     let def_obj = define_obj(comp, &mut dictionary.borrow_mut(), &def_int);
@@ -229,7 +225,7 @@ where
             read_word.clone(),
             &[(
                 "print",
-                with(comp, move |vm| {
+                with(comp, move || {
                     let x = obj.pop()?;
                     let s = String::from_utf8_lossy(&x.data);
                     println!("{s}");
@@ -252,7 +248,7 @@ where
                         read_word.clone(),
                         &[(
                             "read",
-                            with(comp, move |vm| {
+                            with(comp, move || {
                                 let x = obj.pop()?;
                                 let x = <&str>::try_from(&x)?;
                                 obj.push(std::fs::read(x)?.into())
@@ -267,11 +263,11 @@ where
                         &[
                             (
                                 "wait",
-                                with(comp, move |_| encode_event(&int2, event::read()?)),
+                                with(comp, move || encode_event(&int2, event::read()?)),
                             ),
                             (
                                 "set-cursor",
-                                with(comp, move |vm| {
+                                with(comp, move || {
                                     let y = int.pop()?;
                                     let x = int.pop()?;
                                     let y = u16::try_from(y)?;
@@ -297,7 +293,7 @@ where
             &[
                 (
                     "decimal",
-                    with(comp, move |vm| {
+                    with(comp, move || {
                         let x = int2.pop()?;
                         obj2.push(x.to_string().into())?;
                         Ok(())
@@ -305,7 +301,7 @@ where
                 ),
                 (
                     "split",
-                    with(comp, move |vm| {
+                    with(comp, move || {
                         let x = int.pop()?;
                         let x = u32::try_from(x).unwrap();
                         let x = char::from_u32(x).unwrap();
@@ -328,7 +324,7 @@ where
         }
         while let Some(x) = read_word()? {
             let x = dictionary.borrow().get(&x).ok_or_else(|| todo!("{x}"))?;
-            x.eval(&mut vm)?;
+            x.eval()?;
         }
         Ok(())
     }
@@ -337,14 +333,14 @@ where
 /// Create a word from a closure.
 fn with<F>(compiler: &Compiler, f: F) -> Rc<dyn Word>
 where
-    F: 'static + Fn(&mut Vm) -> Result<()>,
+    F: 'static + Fn() -> Result<()>,
 {
     fn dyn_with(compiler: Compiler, f: Rc<dyn Word>) -> Rc<dyn Word> {
-        with_imm(move |vm: &mut Vm| {
+        with_imm(move || {
             if let Some(c) = compiler.borrow_mut().as_mut() {
                 Ok(c.push(f.clone()))
             } else {
-                f.eval(vm)
+                f.eval()
             }
         })
     }
@@ -354,7 +350,7 @@ where
 /// Create an immediate word from a closure.
 fn with_imm<F>(f: F) -> Rc<dyn Word>
 where
-    F: 'static + Fn(&mut Vm) -> Result<()>,
+    F: 'static + Fn() -> Result<()>,
 {
     Rc::new(WordFn::<F>(f))
 }
@@ -367,10 +363,10 @@ where
         .iter()
         .map(|(k, v)| (Box::from(*k), v.clone()))
         .collect::<BTreeMap<_, _>>();
-    with_imm(move |vm| {
+    with_imm(move || {
         let word = read_word()?.unwrap();
         let x = words.get(&*word).unwrap();
-        x.eval(vm)
+        x.eval()
     })
 }
 
@@ -382,7 +378,7 @@ where
     let c = compiler.clone();
     dict.borrow_mut().define(
         ":",
-        with_imm(move |vm| {
+        with_imm(move || {
             let name = read_word()?.unwrap();
             let mut c = c.borrow_mut();
             assert!(c.is_none(), "todo: already compiling");
@@ -394,7 +390,7 @@ where
     let d = dict.clone();
     dict.borrow_mut().define(
         ";",
-        with_imm(move |vm| Ok(CompilerData::finish(c.clone(), &mut d.borrow_mut()))),
+        with_imm(move || Ok(CompilerData::finish(c.clone(), &mut d.borrow_mut()))),
     );
     compiler
 }
@@ -422,7 +418,7 @@ fn define_global<F>(
         let read_word = read_word.clone();
         let s = stack.clone();
         let d = d.clone();
-        with_imm(move |vm| {
+        with_imm(move || {
             let name = read_word()?.unwrap();
             let x = Rc::new(Cell::new(T::default()));
             let x2 = x.clone();
@@ -430,7 +426,7 @@ fn define_global<F>(
             let s2 = s.clone();
             d.borrow_mut().define(
                 &name,
-                with(&comp, move |_| {
+                with(&comp, move || {
                     let x = x2.take();
                     x2.set(x.clone());
                     s2.push(x)
@@ -438,7 +434,7 @@ fn define_global<F>(
             );
             d.borrow_mut().define(
                 &format!("set:{name}"),
-                with(&comp, move |_| s.pop().map(|v| x.set(v))),
+                with(&comp, move || s.pop().map(|v| x.set(v))),
             );
             Ok(())
         })
@@ -461,7 +457,7 @@ fn define_int(comp: &Compiler, dict: &mut DictionaryData) -> Rc<Stack<BigInt>> {
         T: 'static,
     {
         let stack = stack.clone();
-        dict.define(name, with(comp, move |_| (f)(&stack)));
+        dict.define(name, with(comp, move || (f)(&stack)));
     }
     let stack = Rc::new(Stack::<BigInt>::default());
     let s = (comp, &stack);
@@ -491,7 +487,7 @@ fn define_int(comp: &Compiler, dict: &mut DictionaryData) -> Rc<Stack<BigInt>> {
     dict.push_alt(move |name| {
         let f = |x: BigInt| {
             let s = s.clone();
-            with(&comp, move |_| s.push(x.clone()))
+            with(&comp, move || s.push(x.clone()))
         };
         if name.len() > 2 && name.starts_with("'") && name.ends_with("'") {
             let mut it = name.chars().skip(1);
@@ -528,7 +524,7 @@ fn define_obj(
         T: 'static,
     {
         let stack = stack.clone();
-        dict.define(name, with(comp, move |_| (f)(&stack)));
+        dict.define(name, with(comp, move || (f)(&stack)));
     }
     let stack = Rc::new(Stack::<Object>::default());
     let s = (comp, &stack);
