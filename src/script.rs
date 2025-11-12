@@ -16,10 +16,6 @@ type Result<T> = core::result::Result<T, Error>;
 
 trait Word {
     fn eval(&self, vm: &mut Vm) -> Result<()>;
-
-    fn is_immediate(&self) -> bool {
-        false
-    }
 }
 
 #[derive(Default)]
@@ -45,7 +41,7 @@ struct Compiler {
     words: Vec<Rc<dyn Word>>,
 }
 
-struct WordFn<const IMMEDIATE: bool, F>(F);
+struct WordFn<F>(F);
 
 #[derive(Clone, Debug, Default)]
 struct Object {
@@ -59,12 +55,7 @@ struct Stack<T> {
 
 impl Vm {
     fn eval(&mut self, word: &Rc<dyn Word>) -> Result<()> {
-        if let Some(c) = self.compiler.as_mut().filter(|_| !word.is_immediate()) {
-            c.push(word.clone());
-        } else {
-            word.eval(self)?;
-        }
-        Ok(())
+        word.eval(self)
     }
 
     fn define(&mut self, word: &str, value: Rc<dyn Word>) {
@@ -211,16 +202,12 @@ impl<'a> TryFrom<&'a Object> for &'a str {
     }
 }
 
-impl<const IMMEDIATE: bool, F> Word for WordFn<IMMEDIATE, F>
+impl<F> Word for WordFn<F>
 where
     F: Fn(&mut Vm) -> Result<()>,
 {
     fn eval(&self, vm: &mut Vm) -> Result<()> {
         (self.0)(vm)
-    }
-
-    fn is_immediate(&self) -> bool {
-        IMMEDIATE
     }
 }
 
@@ -370,7 +357,16 @@ fn with<F>(f: F) -> Rc<dyn Word>
 where
     F: 'static + Fn(&mut Vm) -> Result<()>,
 {
-    Rc::new(WordFn::<false, F>(f))
+    fn dyn_with(f: Rc<dyn Word>) -> Rc<dyn Word> {
+        with_imm(move |vm: &mut Vm| {
+            if let Some(c) = vm.compiler.as_mut() {
+                Ok(c.push(f.clone()))
+            } else {
+                f.eval(vm)
+            }
+        })
+    }
+    dyn_with(with_imm(f))
 }
 
 /// Create an immediate word from a closure.
@@ -378,7 +374,7 @@ fn with_imm<F>(f: F) -> Rc<dyn Word>
 where
     F: 'static + Fn(&mut Vm) -> Result<()>,
 {
-    Rc::new(WordFn::<true, F>(f))
+    Rc::new(WordFn::<F>(f))
 }
 
 fn dict<F>(read_word: Rc<F>, words: &[(&str, Rc<dyn Word>)]) -> Rc<dyn Word>
