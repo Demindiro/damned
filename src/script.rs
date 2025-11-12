@@ -19,15 +19,15 @@ trait Word {
 }
 
 #[derive(Default)]
-struct Vm {
-    dictionary: Dictionary,
-}
+struct Vm {}
 
 #[derive(Default)]
-struct Dictionary {
+struct DictionaryData {
     words: BTreeMap<Box<str>, Rc<dyn Word>>,
     alt: Option<Box<dyn Fn(&str) -> Option<Rc<dyn Word>>>>,
 }
+
+type Dictionary = Rc<RefCell<DictionaryData>>;
 
 #[derive(Default)]
 struct NameSpace {
@@ -53,13 +53,7 @@ struct Stack<T> {
     stack: Cell<Vec<T>>,
 }
 
-impl Vm {
-    fn define(&mut self, word: &str, value: Rc<dyn Word>) {
-        self.dictionary.define(word, value);
-    }
-}
-
-impl Dictionary {
+impl DictionaryData {
     fn define(&mut self, word: &str, value: Rc<dyn Word>) {
         self.words.insert(word.into(), value);
     }
@@ -95,11 +89,11 @@ impl CompilerData {
         self.words.push(word);
     }
 
-    pub fn finish(slf: Compiler, vm: &mut Vm) {
+    pub fn finish(slf: Compiler, dict: &mut DictionaryData) {
         let c = slf.borrow_mut().take().unwrap();
         let x: Box<[_]> = c.words.into();
         let x = with(&slf, move |vm| x.iter().try_for_each(|x| x.eval(vm)));
-        vm.define(&c.name, x);
+        dict.define(&c.name, x);
     }
 }
 
@@ -203,6 +197,7 @@ where
     A: IntoIterator<Item = String>,
 {
     let streams = Rc::<RefCell<Vec<Box<dyn FnMut() -> Option<u8>>>>>::default();
+    let dictionary = Dictionary::default();
 
     let s = streams.clone();
     let read_word = Rc::new(move || -> Result<Option<String>> {
@@ -222,13 +217,13 @@ where
     });
 
     let mut vm = Vm::default();
-    let comp = &define_compiler(read_word.clone(), &mut vm.dictionary);
-    let def_int = define_int(comp, &mut vm.dictionary);
-    let def_obj = define_obj(comp, &mut vm.dictionary, &def_int);
+    let comp = &define_compiler(read_word.clone(), &dictionary);
+    let def_int = define_int(comp, &mut dictionary.borrow_mut());
+    let def_obj = define_obj(comp, &mut dictionary.borrow_mut(), &def_int);
     args.into_iter()
         .for_each(|x| def_obj.push(x.into()).unwrap());
     let obj = def_obj.clone();
-    vm.define(
+    dictionary.borrow_mut().define(
         "Window",
         dict(
             read_word.clone(),
@@ -246,7 +241,7 @@ where
     let int = def_int.clone();
     let int2 = def_int.clone();
     let obj = def_obj.clone();
-    vm.define(
+    dictionary.borrow_mut().define(
         "Sys",
         dict(
             read_word.clone(),
@@ -295,7 +290,7 @@ where
     let int2 = def_int.clone();
     let obj = def_obj.clone();
     let obj2 = def_obj.clone();
-    vm.define(
+    dictionary.borrow_mut().define(
         "String",
         dict(
             read_word.clone(),
@@ -323,7 +318,7 @@ where
             ],
         ),
     );
-    define_global(comp, &read_word, &mut vm.dictionary, &def_int, &def_obj);
+    define_global(comp, &read_word, &dictionary, &def_int, &def_obj);
 
     move |s| {
         if !s.is_empty() {
@@ -332,10 +327,8 @@ where
             return Ok(());
         }
         while let Some(x) = read_word()? {
-            vm.dictionary
-                .get(&x)
-                .ok_or_else(|| todo!("{x}"))
-                .and_then(|x| x.eval(&mut vm))?;
+            let x = dictionary.borrow().get(&x).ok_or_else(|| todo!("{x}"))?;
+            x.eval(&mut vm)?;
         }
         Ok(())
     }
@@ -381,13 +374,13 @@ where
     })
 }
 
-fn define_compiler<F>(read_word: Rc<F>, dict: &mut Dictionary) -> Compiler
+fn define_compiler<F>(read_word: Rc<F>, dict: &Dictionary) -> Compiler
 where
     F: 'static + Fn() -> Result<Option<String>>,
 {
     let mut compiler = Compiler::default();
     let c = compiler.clone();
-    dict.define(
+    dict.borrow_mut().define(
         ":",
         with_imm(move |vm| {
             let name = read_word()?.unwrap();
@@ -398,9 +391,10 @@ where
         }),
     );
     let c = compiler.clone();
-    dict.define(
+    let d = dict.clone();
+    dict.borrow_mut().define(
         ";",
-        with_imm(move |vm| Ok(CompilerData::finish(c.clone(), vm))),
+        with_imm(move |vm| Ok(CompilerData::finish(c.clone(), &mut d.borrow_mut()))),
     );
     compiler
 }
@@ -408,13 +402,18 @@ where
 fn define_global<F>(
     comp: &Compiler,
     read_word: &Rc<F>,
-    d: &mut Dictionary,
+    d: &Dictionary,
     int: &Rc<Stack<BigInt>>,
     obj: &Rc<Stack<Object>>,
 ) where
     F: 'static + Clone + Fn() -> Result<Option<String>>,
 {
-    fn f<T, F>(comp: &Compiler, read_word: &Rc<F>, stack: &Rc<Stack<T>>) -> Rc<dyn Word>
+    fn f<T, F>(
+        comp: &Compiler,
+        d: &Dictionary,
+        read_word: &Rc<F>,
+        stack: &Rc<Stack<T>>,
+    ) -> Rc<dyn Word>
     where
         F: 'static + Fn() -> Result<Option<String>>,
         T: 'static + Default + Clone,
@@ -422,13 +421,14 @@ fn define_global<F>(
         let comp = comp.clone();
         let read_word = read_word.clone();
         let s = stack.clone();
+        let d = d.clone();
         with_imm(move |vm| {
             let name = read_word()?.unwrap();
             let x = Rc::new(Cell::new(T::default()));
             let x2 = x.clone();
             let s = s.clone();
             let s2 = s.clone();
-            vm.define(
+            d.borrow_mut().define(
                 &name,
                 with(&comp, move |_| {
                     let x = x2.take();
@@ -436,21 +436,26 @@ fn define_global<F>(
                     s2.push(x)
                 }),
             );
-            vm.define(
+            d.borrow_mut().define(
                 &format!("set:{name}"),
                 with(&comp, move |_| s.pop().map(|v| x.set(v))),
             );
             Ok(())
         })
     }
-    let int = ("integer", f(comp, read_word, int));
-    let obj = ("object", f(comp, read_word, obj));
-    d.define("Global", dict(read_word.clone(), &[int, obj]));
+    let int = ("integer", f(comp, d, read_word, int));
+    let obj = ("object", f(comp, d, read_word, obj));
+    d.borrow_mut()
+        .define("Global", dict(read_word.clone(), &[int, obj]));
 }
 
-fn define_int(comp: &Compiler, dict: &mut Dictionary) -> Rc<Stack<BigInt>> {
-    fn f<T, F>((comp, stack): (&Compiler, &Rc<Stack<T>>), dict: &mut Dictionary, name: &str, f: F)
-    where
+fn define_int(comp: &Compiler, dict: &mut DictionaryData) -> Rc<Stack<BigInt>> {
+    fn f<T, F>(
+        (comp, stack): (&Compiler, &Rc<Stack<T>>),
+        dict: &mut DictionaryData,
+        name: &str,
+        f: F,
+    ) where
         F: 'static + Fn(&Stack<T>) -> Result<()> + 'static,
         // TODO why 'static?
         T: 'static,
@@ -509,11 +514,15 @@ fn define_int(comp: &Compiler, dict: &mut Dictionary) -> Rc<Stack<BigInt>> {
 
 fn define_obj(
     comp: &Compiler,
-    dict: &mut Dictionary,
+    dict: &mut DictionaryData,
     int: &Rc<Stack<BigInt>>,
 ) -> Rc<Stack<Object>> {
-    fn f<T, F>((comp, stack): (&Compiler, &Rc<Stack<T>>), dict: &mut Dictionary, name: &str, f: F)
-    where
+    fn f<T, F>(
+        (comp, stack): (&Compiler, &Rc<Stack<T>>),
+        dict: &mut DictionaryData,
+        name: &str,
+        f: F,
+    ) where
         F: 'static + Fn(&Stack<T>) -> Result<()> + 'static,
         // TODO why 'static?
         T: 'static,
