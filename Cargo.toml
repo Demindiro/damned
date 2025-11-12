@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 crossterm = "0.29.0"
 num = "0.4.3"
+with-cell = "0.1.0"

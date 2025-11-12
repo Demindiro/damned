@@ -62,6 +62,7 @@ version = "0.1.0"
 dependencies = [
  "crossterm",
  "num",
+ "with-cell",
 ]
 
 [[package]]
@@ -392,3 +393,9 @@ checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
 dependencies = [
  "windows-link",
 ]
+
+[[package]]
+name = "with-cell"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef67202f96b96aa3539fee900a9b4527946f1cf643d483cf007c8198c28fd8da"
