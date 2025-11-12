@@ -54,10 +54,6 @@ struct Stack<T> {
 }
 
 impl Vm {
-    fn eval(&mut self, word: &Rc<dyn Word>) -> Result<()> {
-        word.eval(self)
-    }
-
     fn define(&mut self, word: &str, value: Rc<dyn Word>) {
         self.dictionary.define(word, value);
     }
@@ -102,7 +98,7 @@ impl CompilerData {
     pub fn finish(slf: Compiler, vm: &mut Vm) {
         let c = slf.borrow_mut().take().unwrap();
         let x: Box<[_]> = c.words.into();
-        let x = with(&slf, move |vm| x.iter().try_for_each(|x| vm.eval(x)));
+        let x = with(&slf, move |vm| x.iter().try_for_each(|x| x.eval(vm)));
         vm.define(&c.name, x);
     }
 }
@@ -339,7 +335,7 @@ where
             vm.dictionary
                 .get(&x)
                 .ok_or_else(|| todo!("{x}"))
-                .and_then(|x| vm.eval(&x))?;
+                .and_then(|x| x.eval(&mut vm))?;
         }
         Ok(())
     }
@@ -381,7 +377,7 @@ where
     with_imm(move |vm| {
         let word = read_word()?.unwrap();
         let x = words.get(&*word).unwrap();
-        vm.eval(x)
+        x.eval(vm)
     })
 }
 
