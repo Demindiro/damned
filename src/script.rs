@@ -20,10 +20,6 @@ trait Word {
     fn is_immediate(&self) -> bool {
         false
     }
-
-    fn is_pure(&self) -> bool {
-        false
-    }
 }
 
 #[derive(Default)]
