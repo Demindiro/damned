@@ -28,8 +28,7 @@ fn main() {
     let _ = args.next();
     let script = args.next().unwrap();
     let script = std::fs::read(&script).unwrap();
-    let mut script = script.into_iter();
-    let mut vm = script::create_root_vm(args, move || script.next());
+    let mut vm = script::create_root_vm(args);
 
     enable_tui();
     let hook = std::panic::take_hook();
@@ -37,6 +36,7 @@ fn main() {
         disable_tui();
         (hook)(info);
     }));
-    vm.run().unwrap();
+    (vm)(&script).unwrap();
+    (vm)(b"").unwrap();
     disable_tui();
 }

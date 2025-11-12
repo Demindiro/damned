@@ -27,7 +27,7 @@ trait Word {
 }
 
 #[derive(Default)]
-pub struct Vm {
+struct Vm {
     streams: Vec<Box<dyn FnMut() -> Option<u8>>>,
     dictionary: Dictionary,
     compiler: Option<Compiler>,
@@ -268,13 +268,11 @@ impl Word for NameSpace {
 }
 
 /// Create VM with all capabilities.
-pub fn create_root_vm<A, F>(args: A, read_byte: F) -> Vm
+pub fn create_root_vm<A>(args: A) -> impl FnMut(&[u8]) -> Result<()>
 where
     A: IntoIterator<Item = String>,
-    F: 'static + FnMut() -> Option<u8>,
 {
     let mut vm = Vm::default();
-    vm.streams.push(Box::new(read_byte));
     let def_int = define_int(&mut vm.dictionary);
     let def_obj = define_obj(&mut vm.dictionary, &def_int);
     args.into_iter()
@@ -359,7 +357,14 @@ where
         ]),
     );
     define_global(&mut vm.dictionary, &def_int, &def_obj);
-    vm
+    move |s| {
+        if s.is_empty() {
+            return vm.run();
+        }
+        let mut s = Vec::from(s).into_iter();
+        vm.streams.push(Box::new(move || s.next()));
+        Ok(())
+    }
 }
 
 /// Create a word from a closure.
