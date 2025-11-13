@@ -27,6 +27,14 @@ pub fn define(comp: &Compiler, dict: &Dictionary, stack: &Rc<Stack<BigInt>>) {
         s.push(x.clone())?;
         s.push(x)
     });
+    f(s, "#2dup", |s| {
+        let y = s.pop()?;
+        let x = s.pop()?;
+        s.push(x.clone())?;
+        s.push(y.clone())?;
+        s.push(x)?;
+        s.push(y)
+    });
     f(s, "#drop", |s| s.pop().map(|_| ()));
     f(s, "#swap", |s| {
         let x = s.pop()?;
