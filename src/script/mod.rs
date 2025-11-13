@@ -137,7 +137,7 @@ where
 
     let def_int = Rc::new(Stack::<BigInt>::default());
 
-    let comp = &compiler::define(read_word.clone(), &dictionary);
+    let comp = &compiler::define(read_word.clone(), &dictionary, &def_int);
     int::define(comp, &dictionary, &def_int);
     let def_obj = object::define(comp, &dictionary, &def_int);
     args.into_iter()

@@ -9,6 +9,15 @@ Sys Fs read
 	@dup @refs Window print
 	;
 
+if 2 1 = then
+	@dup 0 @refs Window print
+	Sys Terminal wait
+else
+	Sys Terminal wait
+	Sys Terminal wait
+	Sys Terminal wait
+end
+
 0 f
 1 f
 2 f
