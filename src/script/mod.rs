@@ -1,3 +1,4 @@
+mod string;
 mod var;
 
 use crossterm::{
@@ -276,40 +277,7 @@ where
             ),
         )
     });
-    let int = def_int.clone();
-    let int2 = def_int.clone();
-    let obj = def_obj.clone();
-    let obj2 = def_obj.clone();
-    dictionary.with(|d| {
-        d.define(
-            "String",
-            dict(
-                read_word.clone(),
-                &[
-                    (
-                        "decimal",
-                        with(comp, move || {
-                            let x = int2.pop()?;
-                            obj2.push(x.to_string().into())?;
-                            Ok(())
-                        }),
-                    ),
-                    (
-                        "split",
-                        with(comp, move || {
-                            let x = int.pop()?;
-                            let x = u32::try_from(x).unwrap();
-                            let x = char::from_u32(x).unwrap();
-                            let y = obj.pop()?;
-                            let y = <&str>::try_from(&y)?;
-                            let mut n = 0;
-                            obj.push(y.split(&[x]).map(Object::from).collect())
-                        }),
-                    ),
-                ],
-            ),
-        )
-    });
+    string::define(comp, &dictionary, &read_word, &def_int, &def_obj);
     var::define(comp, &read_word, &dictionary, &def_int, &def_obj);
 
     move |s| {
