@@ -1,4 +1,4 @@
-use super::{Dictionary, DictionaryData, Word, with_imm};
+use super::{Dictionary, Word, with_imm};
 use std::rc::Rc;
 use with_cell::WithCell;
 
@@ -44,7 +44,7 @@ impl Compiler {
         dyn_with(self.clone(), with_imm(f))
     }
 
-    fn finish(&self, dict: &mut DictionaryData) -> Option<Word> {
+    fn finish(&self, dict: &Dictionary) -> Option<Word> {
         let c = self.0.with(|x| x.take()).unwrap();
         let x: Box<[_]> = c.words.into();
         let x = self.with(move || x.iter().try_for_each(|x| (x)()));
@@ -63,25 +63,21 @@ where
 {
     let compiler = Compiler(Default::default());
     let c = compiler.clone();
-    dict.with(|d| {
-        d.define(
-            ":",
-            with_imm(move || {
-                assert!(c.0.take().is_none(), "todo: already compiling");
-                let name = read_word()?.unwrap();
-                assert!(!name.is_empty(), "todo: forbid empty names");
-                c.0.set(Some(CompilerData::new(&name)));
-                Ok(())
-            }),
-        )
-    });
+    dict.define(
+        ":",
+        with_imm(move || {
+            assert!(c.0.take().is_none(), "todo: already compiling");
+            let name = read_word()?.unwrap();
+            assert!(!name.is_empty(), "todo: forbid empty names");
+            c.0.set(Some(CompilerData::new(&name)));
+            Ok(())
+        }),
+    );
     let c = compiler.clone();
     let d = dict.clone();
-    dict.with(|dict| {
-        dict.define(
-            ";",
-            with_imm(move || d.with(|d| c.finish(d).map(|x| (x)()).transpose().map(|_| ()))),
-        )
-    });
+    dict.define(
+        ";",
+        with_imm(move || c.finish(&d).map(|x| (x)()).transpose().map(|_| ())),
+    );
     compiler
 }

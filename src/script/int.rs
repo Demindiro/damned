@@ -1,14 +1,10 @@
-use super::{Compiler, DictionaryData, Stack};
+use super::{Compiler, Dictionary, Stack};
 use num::BigInt;
 use std::rc::Rc;
 
-pub fn define(comp: &Compiler, dict: &mut DictionaryData) -> Rc<Stack<BigInt>> {
-    fn f<T, F>(
-        (comp, stack): (&Compiler, &Rc<Stack<T>>),
-        dict: &mut DictionaryData,
-        name: &str,
-        f: F,
-    ) where
+pub fn define(comp: &Compiler, dict: &Dictionary) -> Rc<Stack<BigInt>> {
+    fn f<T, F>((comp, stack): (&Compiler, &Rc<Stack<T>>), dict: &Dictionary, name: &str, f: F)
+    where
         F: 'static + Fn(&Stack<T>) -> super::Result<()> + 'static,
         // TODO why 'static?
         T: 'static,

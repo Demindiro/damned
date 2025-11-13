@@ -1,4 +1,4 @@
-use super::{BigInt, Compiler, DictionaryData, Stack};
+use super::{BigInt, Compiler, Dictionary, Stack};
 use std::rc::Rc;
 
 #[derive(Clone, Debug, Default)]
@@ -64,17 +64,9 @@ impl<'a> TryFrom<&'a Object> for &'a str {
     }
 }
 
-pub fn define(
-    comp: &Compiler,
-    dict: &mut DictionaryData,
-    int: &Rc<Stack<BigInt>>,
-) -> Rc<Stack<Object>> {
-    fn f<T, F>(
-        (comp, stack): (&Compiler, &Rc<Stack<T>>),
-        dict: &mut DictionaryData,
-        name: &str,
-        f: F,
-    ) where
+pub fn define(comp: &Compiler, dict: &Dictionary, int: &Rc<Stack<BigInt>>) -> Rc<Stack<Object>> {
+    fn f<T, F>((comp, stack): (&Compiler, &Rc<Stack<T>>), dict: &Dictionary, name: &str, f: F)
+    where
         F: 'static + Fn(&Stack<T>) -> super::Result<()> + 'static,
         // TODO why 'static?
         T: 'static,

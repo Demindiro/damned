@@ -26,26 +26,22 @@ pub fn define<F>(
             let x2 = x.clone();
             let s = s.clone();
             let s2 = s.clone();
-            d.with(|d| {
-                d.define(
-                    &name,
-                    comp.with(move || {
-                        let x = x2.take();
-                        x2.set(x.clone());
-                        s2.push(x)
-                    }),
-                )
-            });
-            d.with(|d| {
-                d.define(
-                    &format!("set:{name}"),
-                    comp.with(move || s.pop().map(|v| x.set(v))),
-                )
-            });
+            d.define(
+                &name,
+                comp.with(move || {
+                    let x = x2.take();
+                    x2.set(x.clone());
+                    s2.push(x)
+                }),
+            );
+            d.define(
+                &format!("set:{name}"),
+                comp.with(move || s.pop().map(|v| x.set(v))),
+            );
             Ok(())
         })
     }
     let int = ("integer", f(comp, d, read_word, int));
     let obj = ("object", f(comp, d, read_word, obj));
-    d.with(|d| d.define("Var", dict(read_word.clone(), &[int, obj])));
+    d.define("Var", dict(read_word.clone(), &[int, obj]));
 }
