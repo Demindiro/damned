@@ -9,7 +9,7 @@ Sys Fs read
 	@dup @refs Window print
 	;
 
-0 if #dup @dup @refcount < then
+0 if #dup @dup @refcount 20 #min < then
 	#dup f
 	1 +
 repeat @drop #drop

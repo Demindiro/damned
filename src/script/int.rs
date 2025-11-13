@@ -34,6 +34,8 @@ pub fn define(comp: &Compiler, dict: &Dictionary, stack: &Rc<Stack<BigInt>>) {
         s.push(x)?;
         s.push(y)
     });
+    f(s, "#min", |s| s.op2to1(|x, y| x.min(y)));
+    f(s, "#max", |s| s.op2to1(|x, y| x.max(y)));
     let s = stack.clone();
     let comp = comp.clone();
     dict.push_alt(move |name| {
