@@ -1,6 +1,7 @@
 mod string;
 mod sys;
 mod var;
+mod window;
 
 use num::BigInt;
 use std::{
@@ -237,23 +238,7 @@ where
     args.into_iter()
         .for_each(|x| def_obj.push(x.into()).unwrap());
     let obj = def_obj.clone();
-    dictionary.with(|d| {
-        d.define(
-            "Window",
-            dict(
-                read_word.clone(),
-                &[(
-                    "print",
-                    comp.with(move || {
-                        let x = obj.pop()?;
-                        let s = String::from_utf8_lossy(&x.data);
-                        println!("{s}");
-                        Ok(())
-                    }),
-                )],
-            ),
-        )
-    });
+    window::define(comp, &dictionary, &read_word, &def_int, &def_obj);
     sys::define(comp, &dictionary, &read_word, &def_int, &def_obj);
     string::define(comp, &dictionary, &read_word, &def_int, &def_obj);
     var::define(comp, &read_word, &dictionary, &def_int, &def_obj);
