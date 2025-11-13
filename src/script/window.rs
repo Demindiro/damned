@@ -1,4 +1,4 @@
-use super::{BigInt, Compiler, Dictionary, Object, Stack, dict};
+use super::{BigInt, Compiler, Dictionary, Object, Stack};
 use std::rc::Rc;
 
 pub fn define<F>(
@@ -11,19 +11,17 @@ pub fn define<F>(
     F: 'static + Clone + Fn() -> super::Result<Option<String>>,
 {
     let (_int, obj) = (int.clone(), obj.clone());
-    dictionary.define(
+    dictionary.dict(
         "Window",
-        dict(
-            read_word.clone(),
-            &[(
-                "print",
-                comp.with(move || {
-                    let x = obj.pop()?;
-                    let s = String::from_utf8_lossy(x.data());
-                    println!("{s}");
-                    Ok(())
-                }),
-            )],
-        ),
+        read_word,
+        &[(
+            "print",
+            comp.with(move || {
+                let x = obj.pop()?;
+                let s = String::from_utf8_lossy(x.data());
+                println!("{s}");
+                Ok(())
+            }),
+        )],
     );
 }

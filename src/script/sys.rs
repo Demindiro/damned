@@ -18,50 +18,48 @@ pub fn define<F>(
     let int = int.clone();
     let obj = obj.clone();
     let int2 = int.clone();
-    dictionary.define(
+    dictionary.dict(
         "Sys",
-        dict(
-            read_word.clone(),
-            &[
-                (
-                    "Fs",
-                    dict(
-                        read_word.clone(),
-                        &[(
-                            "read",
+        read_word,
+        &[
+            (
+                "Fs",
+                dict(
+                    read_word.clone(),
+                    &[(
+                        "read",
+                        comp.with(move || {
+                            let x = obj.pop()?;
+                            let x = <&str>::try_from(&x)?;
+                            obj.push(std::fs::read(x)?.into())
+                        }),
+                    )],
+                ),
+            ),
+            (
+                "Terminal",
+                dict(
+                    read_word.clone(),
+                    &[
+                        (
+                            "wait",
+                            comp.with(move || encode_event(&int2, event::read()?)),
+                        ),
+                        (
+                            "set-cursor",
                             comp.with(move || {
-                                let x = obj.pop()?;
-                                let x = <&str>::try_from(&x)?;
-                                obj.push(std::fs::read(x)?.into())
+                                let y = int.pop()?;
+                                let x = int.pop()?;
+                                let y = u16::try_from(y)?;
+                                let x = u16::try_from(x)?;
+                                execute!(std::io::stdout(), cursor::MoveTo(x, y))?;
+                                Ok(())
                             }),
-                        )],
-                    ),
+                        ),
+                    ],
                 ),
-                (
-                    "Terminal",
-                    dict(
-                        read_word.clone(),
-                        &[
-                            (
-                                "wait",
-                                comp.with(move || encode_event(&int2, event::read()?)),
-                            ),
-                            (
-                                "set-cursor",
-                                comp.with(move || {
-                                    let y = int.pop()?;
-                                    let x = int.pop()?;
-                                    let y = u16::try_from(y)?;
-                                    let x = u16::try_from(x)?;
-                                    execute!(std::io::stdout(), cursor::MoveTo(x, y))?;
-                                    Ok(())
-                                }),
-                            ),
-                        ],
-                    ),
-                ),
-            ],
-        ),
+            ),
+        ],
     );
 }
 

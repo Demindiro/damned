@@ -1,4 +1,4 @@
-use super::{BigInt, Compiler, Dictionary, Object, Stack, Word, dict, with_imm};
+use super::{BigInt, Compiler, Dictionary, Object, Stack, Word, with_imm};
 use core::cell::Cell;
 use std::rc::Rc;
 
@@ -43,5 +43,5 @@ pub fn define<F>(
     }
     let int = ("integer", f(comp, d, read_word, int));
     let obj = ("object", f(comp, d, read_word, obj));
-    d.define("Var", dict(read_word.clone(), &[int, obj]));
+    d.dict("Var", read_word, &[int, obj]);
 }

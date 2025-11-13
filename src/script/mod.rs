@@ -35,6 +35,13 @@ impl Dictionary {
         self.0.with(|d| d.words.insert(word.into(), value));
     }
 
+    fn dict<F>(&self, word: &str, read_word: &Rc<F>, values: &[(&str, Word)])
+    where
+        F: 'static + Fn() -> Result<Option<String>>,
+    {
+        self.define(word, dict(read_word.clone(), values))
+    }
+
     fn imm<F>(&self, word: &str, f: F)
     where
         F: 'static + Fn() -> Result<()>,
