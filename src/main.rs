@@ -3,15 +3,10 @@
 mod script;
 
 use crossterm::{
-    ExecutableCommand, event, execute,
-    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
+    execute,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use std::io::{self, Write};
-
-struct Args {
-    file: String,
-}
+use std::io;
 
 fn enable_tui() {
     let _ = execute!(io::stdout(), EnterAlternateScreen);

@@ -56,7 +56,7 @@ pub fn define<F>(read_word: Rc<F>, dict: &Dictionary) -> Compiler
 where
     F: 'static + Fn() -> super::Result<Option<String>>,
 {
-    let mut compiler = Compiler(Default::default());
+    let compiler = Compiler(Default::default());
     let c = compiler.clone();
     dict.with(|d| {
         d.define(

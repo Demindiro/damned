@@ -9,12 +9,7 @@ mod window;
 use compiler::Compiler;
 use num::BigInt;
 use object::Object;
-use std::{
-    cell::Cell,
-    collections::{BTreeMap, VecDeque},
-    io::{Read, Write},
-    rc::Rc,
-};
+use std::{cell::Cell, collections::BTreeMap, rc::Rc};
 use with_cell::WithCell;
 
 type Error = Box<dyn std::error::Error>;
@@ -29,11 +24,6 @@ struct DictionaryData {
 }
 
 type Dictionary = Rc<WithCell<DictionaryData>>;
-
-#[derive(Default)]
-struct NameSpace {
-    words: BTreeMap<Box<str>, Word>,
-}
 
 struct Stack<T> {
     stack: Cell<Vec<T>>,

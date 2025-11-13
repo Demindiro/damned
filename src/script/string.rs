@@ -37,7 +37,6 @@ pub fn define<F>(
                             let x = char::from_u32(x).unwrap();
                             let y = obj.pop()?;
                             let y = <&str>::try_from(&y)?;
-                            let mut n = 0;
                             obj.push(y.split(&[x]).map(Object::from).collect())
                         }),
                     ),

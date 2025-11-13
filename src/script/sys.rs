@@ -83,7 +83,7 @@ fn encode_key_event(key: KeyEvent) -> i32 {
         code,
         modifiers,
         kind,
-        state,
+        state: _,
     } = key;
     let mut x = match code {
         KeyCode::Backspace => todo!(),
