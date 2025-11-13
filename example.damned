@@ -1,5 +1,5 @@
-Global integer cursor-x
-Global integer cursor-y
+Var integer cursor-x
+Var integer cursor-y
 
 Sys Fs read
 '\n' String split

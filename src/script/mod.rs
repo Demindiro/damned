@@ -308,7 +308,7 @@ where
             ),
         )
     });
-    define_global(comp, &read_word, &dictionary, &def_int, &def_obj);
+    define_var(comp, &read_word, &dictionary, &def_int, &def_obj);
 
     move |s| {
         if !s.is_empty() {
@@ -395,7 +395,7 @@ where
     compiler
 }
 
-fn define_global<F>(
+fn define_var<F>(
     comp: &Compiler,
     read_word: &Rc<F>,
     d: &Dictionary,
@@ -440,7 +440,7 @@ fn define_global<F>(
     }
     let int = ("integer", f(comp, d, read_word, int));
     let obj = ("object", f(comp, d, read_word, obj));
-    d.with(|d| d.define("Global", dict(read_word.clone(), &[int, obj])));
+    d.with(|d| d.define("Var", dict(read_word.clone(), &[int, obj])));
 }
 
 fn define_int(comp: &Compiler, dict: &mut DictionaryData) -> Rc<Stack<BigInt>> {
