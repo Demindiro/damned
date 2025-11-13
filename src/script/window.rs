@@ -20,7 +20,7 @@ pub fn define<F>(
                     "print",
                     comp.with(move || {
                         let x = obj.pop()?;
-                        let s = String::from_utf8_lossy(&x.data);
+                        let s = String::from_utf8_lossy(x.data());
                         println!("{s}");
                         Ok(())
                     }),
