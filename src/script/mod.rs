@@ -1,3 +1,4 @@
+mod compiler;
 mod int;
 mod object;
 mod string;
@@ -5,6 +6,7 @@ mod sys;
 mod var;
 mod window;
 
+use compiler::Compiler;
 use num::BigInt;
 use object::Object;
 use std::{
@@ -33,14 +35,6 @@ struct NameSpace {
     words: BTreeMap<Box<str>, Word>,
 }
 
-struct CompilerData {
-    name: Box<str>,
-    words: Vec<Word>,
-}
-
-#[derive(Clone, Default)]
-struct Compiler(Rc<WithCell<Option<CompilerData>>>);
-
 struct Stack<T> {
     stack: Cell<Vec<T>>,
 }
@@ -66,48 +60,6 @@ impl DictionaryData {
         } else {
             Box::new(f)
         });
-    }
-}
-
-impl CompilerData {
-    pub fn new(name: &str) -> Self {
-        Self {
-            name: name.into(),
-            words: Default::default(),
-        }
-    }
-
-    pub fn push(&mut self, word: Word) {
-        self.words.push(word);
-    }
-}
-
-impl Compiler {
-    /// Create a word from a closure.
-    fn with<F>(&self, f: F) -> Word
-    where
-        F: 'static + Fn() -> Result<()>,
-    {
-        fn dyn_with(compiler: Compiler, f: Word) -> Word {
-            with_imm(move || {
-                // so much for WithCell...
-                if let Some(mut c) = compiler.take() {
-                    c.push(f.clone());
-                    compiler.set(Some(c));
-                    Ok(())
-                } else {
-                    (f)()
-                }
-            })
-        }
-        dyn_with(self.clone(), with_imm(f))
-    }
-
-    fn finish(&self, dict: &mut DictionaryData) {
-        let c = self.0.with(|x| x.take()).unwrap();
-        let x: Box<[_]> = c.words.into();
-        let x = self.with(move || x.iter().try_for_each(|x| (x)()));
-        dict.define(&c.name, x);
     }
 }
 
@@ -149,14 +101,6 @@ impl<T> Default for Stack<T> {
     }
 }
 
-impl core::ops::Deref for Compiler {
-    type Target = WithCell<Option<CompilerData>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 /// Create VM with all capabilities.
 pub fn create_root_vm<A>(args: A) -> impl FnMut(&[u8]) -> Result<()>
 where
@@ -182,7 +126,7 @@ where
             .transpose()
     });
 
-    let comp = &define_compiler(read_word.clone(), &dictionary);
+    let comp = &compiler::define(read_word.clone(), &dictionary);
     let def_int = dictionary.with(|d| int::define(comp, d));
     let def_obj = dictionary.with(|d| object::define(comp, d, &def_int));
     args.into_iter()
@@ -227,27 +171,4 @@ where
         let x = words.get(&*word).unwrap();
         (x)()
     })
-}
-
-fn define_compiler<F>(read_word: Rc<F>, dict: &Dictionary) -> Compiler
-where
-    F: 'static + Fn() -> Result<Option<String>>,
-{
-    let mut compiler = Compiler::default();
-    let c = compiler.clone();
-    dict.with(|d| {
-        d.define(
-            ":",
-            with_imm(move || {
-                let name = read_word()?.unwrap();
-                assert!(c.take().is_none(), "todo: already compiling");
-                c.set(Some(CompilerData::new(&name)));
-                Ok(())
-            }),
-        )
-    });
-    let c = compiler.clone();
-    let d = dict.clone();
-    dict.with(|dict| dict.define(";", with_imm(move || d.with(|d| Ok(c.finish(d))))));
-    compiler
 }
