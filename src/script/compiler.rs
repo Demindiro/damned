@@ -63,21 +63,17 @@ where
 {
     let compiler = Compiler(Default::default());
     let c = compiler.clone();
-    dict.define(
-        ":",
-        with_imm(move || {
-            assert!(c.0.take().is_none(), "todo: already compiling");
-            let name = read_word()?.unwrap();
-            assert!(!name.is_empty(), "todo: forbid empty names");
-            c.0.set(Some(CompilerData::new(&name)));
-            Ok(())
-        }),
-    );
+    dict.imm(":", move || {
+        assert!(c.0.take().is_none(), "todo: already compiling");
+        let name = read_word()?.unwrap();
+        assert!(!name.is_empty(), "todo: forbid empty names");
+        c.0.set(Some(CompilerData::new(&name)));
+        Ok(())
+    });
     let c = compiler.clone();
     let d = dict.clone();
-    dict.define(
-        ";",
-        with_imm(move || c.finish(&d).map(|x| (x)()).transpose().map(|_| ())),
-    );
+    dict.imm(";", move || {
+        c.finish(&d).map(|x| (x)()).transpose().map(|_| ())
+    });
     compiler
 }

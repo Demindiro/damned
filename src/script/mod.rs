@@ -35,6 +35,13 @@ impl Dictionary {
         self.0.with(|d| d.words.insert(word.into(), value));
     }
 
+    fn imm<F>(&self, word: &str, f: F)
+    where
+        F: 'static + Fn() -> Result<()>,
+    {
+        self.define(word, with_imm(f))
+    }
+
     fn get(&self, word: &str) -> Option<Word> {
         self.0.with(|d| {
             if let Some(x) = d.words.get(word).cloned() {
