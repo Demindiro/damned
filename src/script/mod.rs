@@ -135,8 +135,10 @@ where
             .transpose()
     });
 
+    let def_int = Rc::new(Stack::<BigInt>::default());
+
     let comp = &compiler::define(read_word.clone(), &dictionary);
-    let def_int = int::define(comp, &dictionary);
+    int::define(comp, &dictionary, &def_int);
     let def_obj = object::define(comp, &dictionary, &def_int);
     args.into_iter()
         .for_each(|x| def_obj.push(x.into()).unwrap());

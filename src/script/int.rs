@@ -2,7 +2,7 @@ use super::{Compiler, Dictionary, Stack};
 use num::BigInt;
 use std::rc::Rc;
 
-pub fn define(comp: &Compiler, dict: &Dictionary) -> Rc<Stack<BigInt>> {
+pub fn define(comp: &Compiler, dict: &Dictionary, stack: &Rc<Stack<BigInt>>) {
     fn f<T, F>((comp, stack): (&Compiler, &Rc<Stack<T>>), dict: &Dictionary, name: &str, f: F)
     where
         F: 'static + Fn(&Stack<T>) -> super::Result<()> + 'static,
@@ -12,8 +12,7 @@ pub fn define(comp: &Compiler, dict: &Dictionary) -> Rc<Stack<BigInt>> {
         let stack = stack.clone();
         dict.define(name, comp.with(move || (f)(&stack)));
     }
-    let stack = Rc::new(Stack::<BigInt>::default());
-    let s = (comp, &stack);
+    let s = (comp, stack);
     f(s, dict, "+", |s| s.op2to1(|x, y| x + y));
     f(s, dict, "-", |s| s.op2to1(|x, y| x - y));
     f(s, dict, "*", |s| s.op2to1(|x, y| x * y));
@@ -58,5 +57,4 @@ pub fn define(comp: &Compiler, dict: &Dictionary) -> Rc<Stack<BigInt>> {
         }
         name.parse::<BigInt>().ok().map(f)
     });
-    stack
 }
