@@ -1,4 +1,4 @@
-use super::{BigInt, Compiler, Dictionary, Object, Stack, Word, dict, with, with_imm};
+use super::{BigInt, Compiler, Dictionary, Object, Stack, Word, dict, with_imm};
 use core::cell::Cell;
 use std::rc::Rc;
 
@@ -29,7 +29,7 @@ pub fn define<F>(
             d.with(|d| {
                 d.define(
                     &name,
-                    with(&comp, move || {
+                    comp.with(move || {
                         let x = x2.take();
                         x2.set(x.clone());
                         s2.push(x)
@@ -39,7 +39,7 @@ pub fn define<F>(
             d.with(|d| {
                 d.define(
                     &format!("set:{name}"),
-                    with(&comp, move || s.pop().map(|v| x.set(v))),
+                    comp.with(move || s.pop().map(|v| x.set(v))),
                 )
             });
             Ok(())

@@ -1,4 +1,4 @@
-use super::{BigInt, Compiler, Dictionary, Object, Stack, dict, with};
+use super::{BigInt, Compiler, Dictionary, Object, Stack, dict};
 use std::rc::Rc;
 
 pub fn define<F>(
@@ -23,7 +23,7 @@ pub fn define<F>(
                 &[
                     (
                         "decimal",
-                        with(comp, move || {
+                        comp.with(move || {
                             let x = int2.pop()?;
                             obj2.push(x.to_string().into())?;
                             Ok(())
@@ -31,7 +31,7 @@ pub fn define<F>(
                     ),
                     (
                         "split",
-                        with(comp, move || {
+                        comp.with(move || {
                             let x = int.pop()?;
                             let x = u32::try_from(x).unwrap();
                             let x = char::from_u32(x).unwrap();

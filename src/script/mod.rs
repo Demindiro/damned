@@ -86,11 +86,33 @@ impl CompilerData {
     pub fn push(&mut self, word: Word) {
         self.words.push(word);
     }
+}
 
-    pub fn finish(slf: Compiler, dict: &mut DictionaryData) {
-        let c = slf.with(|x| x.take()).unwrap();
+impl Compiler {
+    /// Create a word from a closure.
+    fn with<F>(&self, f: F) -> Word
+    where
+        F: 'static + Fn() -> Result<()>,
+    {
+        fn dyn_with(compiler: Compiler, f: Word) -> Word {
+            with_imm(move || {
+                // so much for WithCell...
+                if let Some(mut c) = compiler.take() {
+                    c.push(f.clone());
+                    compiler.set(Some(c));
+                    Ok(())
+                } else {
+                    (f)()
+                }
+            })
+        }
+        dyn_with(self.clone(), with_imm(f))
+    }
+
+    fn finish(&self, dict: &mut DictionaryData) {
+        let c = self.0.with(|x| x.take()).unwrap();
         let x: Box<[_]> = c.words.into();
-        let x = with(&slf, move || x.iter().try_for_each(|x| (x)()));
+        let x = self.with(move || x.iter().try_for_each(|x| (x)()));
         dict.define(&c.name, x);
     }
 }
@@ -226,7 +248,7 @@ where
                 read_word.clone(),
                 &[(
                     "print",
-                    with(comp, move || {
+                    comp.with(move || {
                         let x = obj.pop()?;
                         let s = String::from_utf8_lossy(&x.data);
                         println!("{s}");
@@ -251,7 +273,7 @@ where
                             read_word.clone(),
                             &[(
                                 "read",
-                                with(comp, move || {
+                                comp.with(move || {
                                     let x = obj.pop()?;
                                     let x = <&str>::try_from(&x)?;
                                     obj.push(std::fs::read(x)?.into())
@@ -266,11 +288,11 @@ where
                             &[
                                 (
                                     "wait",
-                                    with(comp, move || encode_event(&int2, event::read()?)),
+                                    comp.with(move || encode_event(&int2, event::read()?)),
                                 ),
                                 (
                                     "set-cursor",
-                                    with(comp, move || {
+                                    comp.with(move || {
                                         let y = int.pop()?;
                                         let x = int.pop()?;
                                         let y = u16::try_from(y)?;
@@ -301,26 +323,6 @@ where
         }
         Ok(())
     }
-}
-
-/// Create a word from a closure.
-fn with<F>(compiler: &Compiler, f: F) -> Word
-where
-    F: 'static + Fn() -> Result<()>,
-{
-    fn dyn_with(compiler: Compiler, f: Word) -> Word {
-        with_imm(move || {
-            // so much for WithCell...
-            if let Some(mut c) = compiler.take() {
-                c.push(f.clone());
-                compiler.set(Some(c));
-                Ok(())
-            } else {
-                (f)()
-            }
-        })
-    }
-    dyn_with(compiler.clone(), with_imm(f))
 }
 
 /// Create an immediate word from a closure.
@@ -365,12 +367,7 @@ where
     });
     let c = compiler.clone();
     let d = dict.clone();
-    dict.with(|dict| {
-        dict.define(
-            ";",
-            with_imm(move || d.with(|d| Ok(CompilerData::finish(c.clone(), d)))),
-        )
-    });
+    dict.with(|dict| dict.define(";", with_imm(move || d.with(|d| Ok(c.finish(d))))));
     compiler
 }
 
@@ -386,7 +383,7 @@ fn define_int(comp: &Compiler, dict: &mut DictionaryData) -> Rc<Stack<BigInt>> {
         T: 'static,
     {
         let stack = stack.clone();
-        dict.define(name, with(comp, move || (f)(&stack)));
+        dict.define(name, comp.with(move || (f)(&stack)));
     }
     let stack = Rc::new(Stack::<BigInt>::default());
     let s = (comp, &stack);
@@ -416,7 +413,7 @@ fn define_int(comp: &Compiler, dict: &mut DictionaryData) -> Rc<Stack<BigInt>> {
     dict.push_alt(move |name| {
         let f = |x: BigInt| {
             let s = s.clone();
-            with(&comp, move || s.push(x.clone()))
+            comp.with(move || s.push(x.clone()))
         };
         if name.len() > 2 && name.starts_with("'") && name.ends_with("'") {
             let mut it = name.chars().skip(1);
@@ -453,7 +450,7 @@ fn define_obj(
         T: 'static,
     {
         let stack = stack.clone();
-        dict.define(name, with(comp, move || (f)(&stack)));
+        dict.define(name, comp.with(move || (f)(&stack)));
     }
     let stack = Rc::new(Stack::<Object>::default());
     let s = (comp, &stack);
