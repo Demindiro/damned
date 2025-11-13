@@ -3,7 +3,7 @@ use num::BigInt;
 use std::rc::Rc;
 
 pub fn define(comp: &Compiler, dict: &Dictionary, stack: &Rc<Stack<BigInt>>) {
-    fn f<T, F>((comp, stack): (&Compiler, &Rc<Stack<T>>), dict: &Dictionary, name: &str, f: F)
+    fn f<T, F>((comp, stack, dict): (&Compiler, &Rc<Stack<T>>, &Dictionary), name: &str, f: F)
     where
         F: 'static + Fn(&Stack<T>) -> super::Result<()> + 'static,
         // TODO why 'static?
@@ -12,23 +12,23 @@ pub fn define(comp: &Compiler, dict: &Dictionary, stack: &Rc<Stack<BigInt>>) {
         let stack = stack.clone();
         dict.define(name, comp.with(move || (f)(&stack)));
     }
-    let s = (comp, stack);
-    f(s, dict, "+", |s| s.op2to1(|x, y| x + y));
-    f(s, dict, "-", |s| s.op2to1(|x, y| x - y));
-    f(s, dict, "*", |s| s.op2to1(|x, y| x * y));
-    f(s, dict, "=", |s| s.op2to1(|x, y| (x == y).into()));
-    f(s, dict, "<>", |s| s.op2to1(|x, y| (x != y).into()));
-    f(s, dict, "<", |s| s.op2to1(|x, y| (x < y).into()));
-    f(s, dict, ">", |s| s.op2to1(|x, y| (x > y).into()));
-    f(s, dict, "<=", |s| s.op2to1(|x, y| (x <= y).into()));
-    f(s, dict, ">=", |s| s.op2to1(|x, y| (x >= y).into()));
-    f(s, dict, "#dup", |s| {
+    let s = (comp, stack, dict);
+    f(s, "+", |s| s.op2to1(|x, y| x + y));
+    f(s, "-", |s| s.op2to1(|x, y| x - y));
+    f(s, "*", |s| s.op2to1(|x, y| x * y));
+    f(s, "=", |s| s.op2to1(|x, y| (x == y).into()));
+    f(s, "<>", |s| s.op2to1(|x, y| (x != y).into()));
+    f(s, "<", |s| s.op2to1(|x, y| (x < y).into()));
+    f(s, ">", |s| s.op2to1(|x, y| (x > y).into()));
+    f(s, "<=", |s| s.op2to1(|x, y| (x <= y).into()));
+    f(s, ">=", |s| s.op2to1(|x, y| (x >= y).into()));
+    f(s, "#dup", |s| {
         let x = s.pop()?;
         s.push(x.clone())?;
         s.push(x)
     });
-    f(s, dict, "#drop", |s| s.pop().map(|_| ()));
-    f(s, dict, "#swap", |s| {
+    f(s, "#drop", |s| s.pop().map(|_| ()));
+    f(s, "#swap", |s| {
         let x = s.pop()?;
         let y = s.pop()?;
         s.push(x)?;
