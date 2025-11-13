@@ -9,7 +9,14 @@ Sys Fs read
 	@dup @refs Window print
 	;
 
-0 if #dup @dup @refcount 20 #min < then
+: #drop2 #swap #drop ;
+: #dup2 #2dup #drop ;
+
+Window size #drop2
+@dup @refcount #min
+1 -
+
+0 if #2dup > then
 	#dup f
 	1 +
 repeat @drop #drop
