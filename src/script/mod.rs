@@ -38,7 +38,8 @@ struct CompilerData {
     words: Vec<Word>,
 }
 
-type Compiler = Rc<WithCell<Option<CompilerData>>>;
+#[derive(Clone, Default)]
+struct Compiler(Rc<WithCell<Option<CompilerData>>>);
 
 #[derive(Clone, Debug, Default)]
 struct Object {
@@ -176,6 +177,14 @@ impl<'a> TryFrom<&'a Object> for &'a str {
 
     fn try_from(obj: &'a Object) -> core::result::Result<Self, Self::Error> {
         core::str::from_utf8(&obj.data)
+    }
+}
+
+impl core::ops::Deref for Compiler {
+    type Target = WithCell<Option<CompilerData>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
