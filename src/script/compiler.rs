@@ -50,6 +50,19 @@ impl CompilerData {
     }
 }
 
+impl Cond {
+    fn finish(self) -> super::Result<[Box<[Word]>; 3]> {
+        let Self {
+            cond,
+            tru,
+            fals,
+            stage,
+        } = self;
+        assert!(matches!(stage, CondStage::True | CondStage::False));
+        Ok([cond, tru, fals].map(|x| x.into_boxed_slice()))
+    }
+}
+
 impl Compiler {
     /// Create a word from a closure.
     pub fn with<F>(&self, f: F) -> Word
@@ -115,14 +128,7 @@ impl Compiler {
     fn cond_end(&self, stack: &Rc<Stack<BigInt>>) -> super::Result<()> {
         let f = self.0.with(|cc| {
             let c = cc.as_mut().unwrap();
-            let Cond {
-                cond,
-                tru,
-                fals,
-                stage,
-            } = c.cond.take().unwrap();
-            assert!(matches!(stage, CondStage::True | CondStage::False));
-            let [cond, tru, fals] = [cond, tru, fals].map(|x| x.into_boxed_slice());
+            let [cond, tru, fals] = c.cond.take().unwrap().finish()?;
             let stack = stack.clone();
             let f = move || {
                 cond.iter().try_for_each(|x| (x)())?;
@@ -132,14 +138,39 @@ impl Compiler {
                     .iter()
                     .try_for_each(|x| (x)())
             };
-            if c.name.is_empty() {
+            super::Result::Ok(if c.name.is_empty() {
                 *cc = None;
                 Some(f)
             } else {
                 c.push(with_imm(f));
                 None
-            }
-        });
+            })
+        })?;
+        f.map(|f| (f)()).transpose().map(|_| ())
+    }
+
+    fn cond_repeat(&self, stack: &Rc<Stack<BigInt>>) -> super::Result<()> {
+        let f = self.0.with(|cc| {
+            let c = cc.as_mut().unwrap();
+            let [cond, tru, fals] = c.cond.take().unwrap().finish()?;
+            let stack = stack.clone();
+            let f = move || {
+                while {
+                    cond.iter().try_for_each(|x| (x)())?;
+                    stack.pop()? != BigInt::ZERO
+                } {
+                    tru.iter().try_for_each(|x| (x)())?;
+                }
+                fals.iter().try_for_each(|x| (x)())
+            };
+            super::Result::Ok(if c.name.is_empty() {
+                *cc = None;
+                Some(f)
+            } else {
+                c.push(with_imm(f));
+                None
+            })
+        })?;
         f.map(|f| (f)()).transpose().map(|_| ())
     }
 }
@@ -171,5 +202,8 @@ where
     let c = compiler.clone();
     let s = stack.clone();
     dict.imm("end", move || c.cond_end(&s));
+    let c = compiler.clone();
+    let s = stack.clone();
+    dict.imm("repeat", move || c.cond_repeat(&s));
     compiler
 }

@@ -102,5 +102,9 @@ pub fn define(comp: &Compiler, dict: &Dictionary, int: &Rc<Stack<BigInt>>) -> Rc
         let x = s.pop()?.refs.get(i).unwrap().clone();
         s.push(x.into())
     });
+    let int2 = int.clone();
+    f(s, dict, "@refcount", move |s| {
+        int2.push(s.pop()?.refs().len().into())
+    });
     stack
 }
