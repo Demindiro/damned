@@ -44,11 +44,16 @@ impl Compiler {
         dyn_with(self.clone(), with_imm(f))
     }
 
-    fn finish(&self, dict: &mut DictionaryData) {
+    fn finish(&self, dict: &mut DictionaryData) -> Option<Word> {
         let c = self.0.with(|x| x.take()).unwrap();
         let x: Box<[_]> = c.words.into();
         let x = self.with(move || x.iter().try_for_each(|x| (x)()));
-        dict.define(&c.name, x);
+        if c.name.is_empty() {
+            Some(x)
+        } else {
+            dict.define(&c.name, x);
+            None
+        }
     }
 }
 
@@ -72,6 +77,11 @@ where
     });
     let c = compiler.clone();
     let d = dict.clone();
-    dict.with(|dict| dict.define(";", with_imm(move || d.with(|d| Ok(c.finish(d))))));
+    dict.with(|dict| {
+        dict.define(
+            ";",
+            with_imm(move || d.with(|d| c.finish(d).map(|x| (x)()).transpose().map(|_| ()))),
+        )
+    });
     compiler
 }
