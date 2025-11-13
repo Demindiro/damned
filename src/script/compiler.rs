@@ -62,8 +62,9 @@ where
         d.define(
             ":",
             with_imm(move || {
-                let name = read_word()?.unwrap();
                 assert!(c.0.take().is_none(), "todo: already compiling");
+                let name = read_word()?.unwrap();
+                assert!(!name.is_empty(), "todo: forbid empty names");
                 c.0.set(Some(CompilerData::new(&name)));
                 Ok(())
             }),
