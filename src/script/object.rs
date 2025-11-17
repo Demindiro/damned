@@ -1,4 +1,5 @@
 use super::{BigInt, Compiler, Dictionary, Stack};
+use core::ops::Range;
 use std::rc::Rc;
 
 #[derive(Clone, Debug, Default)]
@@ -20,6 +21,13 @@ impl Object {
         Self {
             data: self.data().iter().chain(rhs.data()).cloned().collect(),
             refs: self.refs().iter().chain(rhs.refs()).cloned().collect(),
+        }
+    }
+
+    pub fn slice(&self, data: Range<usize>, refs: Range<usize>) -> Self {
+        Self {
+            data: self.data()[data].iter().cloned().collect(),
+            refs: self.refs()[refs].iter().cloned().collect(),
         }
     }
 }
@@ -121,6 +129,12 @@ pub fn define(comp: &Compiler, dict: &Dictionary, int: &Rc<Stack<BigInt>>) -> Rc
         let y = s.pop()?;
         let x = s.pop()?;
         s.push(x.concat(&y))
+    });
+    let int2 = int.clone();
+    f(s, dict, "@slice", move |s| {
+        let f = || Ok::<_, Box<dyn std::error::Error>>(usize::try_from(int2.pop()?)?);
+        let f = || f().and_then(|end| Ok(f()?..end));
+        f().and_then(|refs| s.push(s.pop()?.slice(f()?, refs)))
     });
     stack
 }
