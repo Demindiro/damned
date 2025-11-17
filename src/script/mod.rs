@@ -4,7 +4,6 @@ mod object;
 mod string;
 mod sys;
 mod var;
-mod window;
 
 use compiler::Compiler;
 use num::BigInt;

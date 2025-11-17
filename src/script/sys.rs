@@ -1,8 +1,8 @@
-use super::{BigInt, Compiler, Dictionary, Object, Stack, dict};
+use super::{BigInt, Compiler, Dictionary, Object, Stack, Word, dict};
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
-    execute,
+    execute, queue, terminal,
 };
 use std::rc::Rc;
 
@@ -22,11 +22,11 @@ pub fn define<F>(
 {
     let int = int.clone();
     let obj = obj.clone();
-    let int2 = int.clone();
     dictionary.dict(
         "Sys",
         read_word,
         &[
+            ("Terminal", define_terminal(comp, read_word, &int, &obj)),
             (
                 "Fs",
                 dict(
@@ -41,31 +41,62 @@ pub fn define<F>(
                     )],
                 ),
             ),
-            (
-                "Terminal",
-                dict(
-                    read_word.clone(),
-                    &[
-                        (
-                            "wait",
-                            comp.with(move || encode_event(&int2, event::read()?)),
-                        ),
-                        (
-                            "set-cursor",
-                            comp.with(move || {
-                                let y = int.pop()?;
-                                let x = int.pop()?;
-                                let y = u16::try_from(y)?;
-                                let x = u16::try_from(x)?;
-                                execute!(std::io::stdout(), cursor::MoveTo(x, y))?;
-                                Ok(())
-                            }),
-                        ),
-                    ],
-                ),
-            ),
         ],
     );
+}
+
+fn define_terminal<F>(
+    comp: &Compiler,
+    read_word: &Rc<F>,
+    int: &Rc<Stack<BigInt>>,
+    obj: &Rc<Stack<Object>>,
+) -> Word
+where
+    F: 'static + Fn() -> super::Result<Option<String>>,
+{
+    let (int, obj) = (int.clone(), obj.clone());
+    let int = int.clone();
+    let int2 = int.clone();
+    let int3 = int.clone();
+    dict(
+        read_word.clone(),
+        &[
+            (
+                "wait",
+                comp.with(move || encode_event(&int2, event::read()?)),
+            ),
+            (
+                "set-cursor",
+                comp.with(move || {
+                    let y = int.pop()?;
+                    let x = int.pop()?;
+                    let y = u16::try_from(y)?;
+                    let x = u16::try_from(x)?;
+                    queue!(std::io::stdout(), cursor::MoveTo(x, y))?;
+                    Ok(())
+                }),
+            ),
+            (
+                "print",
+                comp.with(move || {
+                    let x = obj.pop()?;
+                    let s = String::from_utf8_lossy(x.data());
+                    use std::io::Write;
+                    std::io::stdout().write_all(s.as_bytes())?;
+                    Ok(())
+                }),
+            ),
+            (
+                "size",
+                comp.with(move || {
+                    let (x, y) = terminal::size()?;
+                    int3.push(x.into())?;
+                    int3.push(y.into())
+                }),
+            ),
+            ("flush", comp.with(move || Ok(execute!(std::io::stdout())?))),
+        ],
+    )
 }
 
 fn encode_event(int: &Stack<BigInt>, event: Event) -> super::Result<()> {
