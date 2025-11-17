@@ -1,3 +1,5 @@
+: TAB-WIDTH 8 ;
+
 Var integer cursor-x
 Var integer cursor-y
 Var integer cursor-x-sticky
@@ -19,17 +21,19 @@ set:lines-buffer
 : #dup2 #2dup #drop ;
 
 : lines-count lines-buffer @refcount ;
-: char-width if '\t' = then 8 else 1 end ;
+: char-width if '\t' = then TAB-WIDTH else 1 end ;
 Var integer x
-: line-width
-	lines-buffer @refs
+: line-bytecount lines-buffer @refs @bytecount ;
+: string-visual-width
 	0 set:x
 	0 if #dup @dup @bytecount < then
 		#dup @dup @byte char-width x + set:x
 		1 +
 	repeat #drop @drop x ;
+: line-visual-width lines-buffer @refs string-visual-width ;
 
 : current-line cursor-y lines-buffer @refs ;
+: current-line-bytecount cursor-y line-bytecount ;
 
 : window-height Sys Terminal size #drop2 ;
 
@@ -58,7 +62,7 @@ Var integer x
 
 : cursor-clamp
 	cursor-y 0 #max lines-count 1 - #min set:cursor-y
-	cursor-x-sticky 0 #max cursor-y line-width #min set:cursor-x ;
+	cursor-x-sticky 0 #max current-line-bytecount #min set:cursor-x ;
 
 
 : set-current-line
@@ -112,12 +116,16 @@ Var integer x
 	0 window-height 2 - Sys Terminal set-cursor
 	status Sys Terminal print ;
 
+: render-cursor
+	current-line  0 cursor-x 0 0 @slice  string-visual-width
+	cursor-y Sys Terminal set-cursor ;
+
 if 1 then
 	Sys Terminal clear
 	cursor-clamp
 	render
 	render-status
-	cursor-x cursor-y Sys Terminal set-cursor
+	render-cursor
 	Sys Terminal flush
 	Sys Terminal wait decode
 repeat
