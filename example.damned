@@ -1,8 +1,11 @@
 Var integer cursor-x
 Var integer cursor-y
+Var integer cursor-x-sticky
+Var object lines-buffer
 
 Sys Fs read
 '\n' String split
+set:lines-buffer
 
 : f
 	#dup 0 #swap Sys Terminal set-cursor
@@ -12,13 +15,61 @@ Sys Fs read
 : #drop2 #swap #drop ;
 : #dup2 #2dup #drop ;
 
-Window size #drop2
-@dup @refcount #min
-1 -
+: lines-count lines-buffer @refcount ;
+: char-width if '\t' = then 8 else 1 end ;
+Var integer x
+: line-width
+	lines-buffer @refs
+	0 set:x
+	0 if #dup @dup @bytecount < then
+		#dup @dup @byte char-width x + set:x
+		1 +
+	repeat #drop @drop x ;
 
-0 if #2dup > then
-	#dup f
-	1 +
-repeat @drop #drop
+: render
+	lines-buffer
+	Window size #drop2
+	@dup @refcount #min
+	1 -
 
-Sys Terminal wait
+	0 if #2dup > then
+		#dup f
+		1 +
+	repeat @drop #drop
+	;
+
+: move-cursor-x cursor-x + set:cursor-x cursor-x set:cursor-x-sticky ;
+: move-cursor-y cursor-y + set:cursor-y ;
+: cursor-up    -1 move-cursor-y ;
+: cursor-down   1 move-cursor-y ;
+: cursor-left  -1 move-cursor-x ;
+: cursor-right  1 move-cursor-x ;
+
+: cursor-clamp
+	cursor-y 0 #max lines-count 1 - #min set:cursor-y
+	cursor-x-sticky 0 #max cursor-y line-width #min set:cursor-x ;
+
+
+: keycode 1 21 #bit:shl 1 - #bit:and ;
+
+: is-press #dup 27 #bit:shr 0b01 = ;
+
+: KEY_UP    0b11 19 #bit:shl 0b00 #bit:or ;
+: KEY_DOWN  0b11 19 #bit:shl 0b01 #bit:or ;
+: KEY_LEFT  0b11 19 #bit:shl 0b10 #bit:or ;
+: KEY_RIGHT 0b11 19 #bit:shl 0b11 #bit:or ;
+
+: __crash__ if 1 then #drop repeat ;
+: decode __crash__ ;
+: decode if #dup KEY_UP    = then cursor-up    else decode end ;
+: decode if #dup KEY_DOWN  = then cursor-down  else decode end ;
+: decode if #dup KEY_LEFT  = then cursor-left  else decode end ;
+: decode if #dup KEY_RIGHT = then cursor-right else decode end ;
+: decode if is-press then keycode decode end #drop ;
+
+if 1 then
+	cursor-clamp
+	render
+	cursor-x cursor-y Sys Terminal set-cursor
+	Sys Terminal wait decode
+repeat
