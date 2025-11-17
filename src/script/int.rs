@@ -44,6 +44,12 @@ pub fn define(comp: &Compiler, dict: &Dictionary, stack: &Rc<Stack<BigInt>>) {
     });
     f(s, "#min", |s| s.op2to1(|x, y| x.min(y)));
     f(s, "#max", |s| s.op2to1(|x, y| x.max(y)));
+    let to_usize = |x| usize::try_from(x).unwrap();
+    f(s, "#bit:shl", move |s| s.op2to1(|x, y| x << to_usize(y)));
+    f(s, "#bit:shr", move |s| s.op2to1(|x, y| x >> to_usize(y)));
+    f(s, "#bit:and", move |s| s.op2to1(|x, y| x & y));
+    f(s, "#bit:or", move |s| s.op2to1(|x, y| x | y));
+    f(s, "#bit:xor", move |s| s.op2to1(|x, y| x ^ y));
     let s = stack.clone();
     let comp = comp.clone();
     dict.push_alt(move |name| {
