@@ -10,6 +10,8 @@ const KEY_ARROW_UP: i32 = (0b11 << 19) | 0b00;
 const KEY_ARROW_DOWN: i32 = (0b11 << 19) | 0b01;
 const KEY_ARROW_LEFT: i32 = (0b11 << 19) | 0b10;
 const KEY_ARROW_RIGHT: i32 = (0b11 << 19) | 0b11;
+const KEY_DELETE: i32 = (0b11 << 19) | 0x10;
+const KEY_BACKSPACE: i32 = (0b11 << 19) | 0x11;
 
 pub fn define<F>(
     comp: &Compiler,
