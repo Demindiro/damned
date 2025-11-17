@@ -41,6 +41,15 @@ impl From<Box<[u8]>> for Object {
     }
 }
 
+impl<const N: usize> From<[Object; N]> for Object {
+    fn from(refs: [Object; N]) -> Self {
+        Self {
+            data: [].into(),
+            refs: refs.into(),
+        }
+    }
+}
+
 impl From<Vec<u8>> for Object {
     fn from(s: Vec<u8>) -> Self {
         s.into_boxed_slice().into()
@@ -135,6 +144,9 @@ pub fn define(comp: &Compiler, dict: &Dictionary, int: &Rc<Stack<BigInt>>) -> Rc
         let f = || Ok::<_, Box<dyn std::error::Error>>(usize::try_from(int2.pop()?)?);
         let f = || f().and_then(|end| Ok(f()?..end));
         f().and_then(|refs| s.push(s.pop()?.slice(f()?, refs)))
+    });
+    f(s, dict, "@intoref", move |s| {
+        s.push(Object::from([s.pop()?]))
     });
     stack
 }
