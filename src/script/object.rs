@@ -89,7 +89,7 @@ pub fn define(comp: &Compiler, dict: &Dictionary, int: &Rc<Stack<BigInt>>) -> Rc
         s.push(y)
     });
     let int2 = int.clone();
-    f(s, dict, "@data", move |s| {
+    f(s, dict, "@byte", move |s| {
         let i = int2.pop()?;
         let i = usize::try_from(i).unwrap();
         let x = *s.pop()?.data.get(i).unwrap();
@@ -105,6 +105,10 @@ pub fn define(comp: &Compiler, dict: &Dictionary, int: &Rc<Stack<BigInt>>) -> Rc
     let int2 = int.clone();
     f(s, dict, "@refcount", move |s| {
         int2.push(s.pop()?.refs().len().into())
+    });
+    let int2 = int.clone();
+    f(s, dict, "@bytecount", move |s| {
+        int2.push(s.pop()?.data().len().into())
     });
     stack
 }
