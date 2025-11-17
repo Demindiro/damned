@@ -71,6 +71,35 @@ pub fn define(comp: &Compiler, dict: &Dictionary, stack: &Rc<Stack<BigInt>>) {
             assert_eq!(it.next().unwrap(), '\'');
             return Some(f(BigInt::from(c as u32)));
         }
-        name.parse::<BigInt>().ok().map(f)
+        from_string(name).map(f)
     });
+}
+
+fn from_string(s: &str) -> Option<BigInt> {
+    let (radix, s) = match s.get(..2) {
+        Some("0b") => (2, &s[2..]),
+        Some("0o") => (8, &s[2..]),
+        Some("0x") => (16, &s[2..]),
+        _ => (10, s),
+    };
+
+    let s = s.as_bytes();
+    let (neg, s) = match s[0] {
+        b'+' => (false, &s[1..]),
+        b'-' => (true, &s[1..]),
+        _ => (false, s),
+    };
+
+    s.iter()
+        .try_fold(BigInt::ZERO, |n, c| {
+            let x = match c {
+                b'_' => return Some(n),
+                b'0'..=b'9' => c - b'0',
+                b'a'..=b'z' => c - b'a' + 10,
+                b'A'..=b'Z' => c - b'A' + 10,
+                _ => return None,
+            };
+            (x < radix).then(|| n * radix + x)
+        })
+        .map(|n| if neg { -n } else { n })
 }
