@@ -37,7 +37,7 @@ Var integer x
 
 : window-height Sys Terminal size #drop2 ;
 
-: render
+: render-text
 	0 0 Sys Terminal set-cursor
 	lines-buffer
 	window-height
@@ -123,7 +123,7 @@ Var integer x
 if 1 then
 	Sys Terminal clear
 	cursor-clamp
-	render
+	render-text
 	render-status
 	render-cursor
 	Sys Terminal flush
