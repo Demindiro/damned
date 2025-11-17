@@ -6,6 +6,11 @@ use crossterm::{
 };
 use std::rc::Rc;
 
+const KEY_ARROW_UP: i32 = (0b11 << 19) | 0b00;
+const KEY_ARROW_DOWN: i32 = (0b11 << 19) | 0b01;
+const KEY_ARROW_LEFT: i32 = (0b11 << 19) | 0b10;
+const KEY_ARROW_RIGHT: i32 = (0b11 << 19) | 0b11;
+
 pub fn define<F>(
     comp: &Compiler,
     dictionary: &Dictionary,
@@ -84,10 +89,10 @@ fn encode_key_event(key: KeyEvent) -> i32 {
     let mut x = match code {
         KeyCode::Backspace => todo!(),
         KeyCode::Enter => todo!(),
-        KeyCode::Left => todo!(),
-        KeyCode::Right => todo!(),
-        KeyCode::Up => todo!(),
-        KeyCode::Down => todo!(),
+        KeyCode::Left => KEY_ARROW_LEFT,
+        KeyCode::Right => KEY_ARROW_RIGHT,
+        KeyCode::Up => KEY_ARROW_UP,
+        KeyCode::Down => KEY_ARROW_DOWN,
         KeyCode::PageUp => todo!(),
         KeyCode::PageDown => todo!(),
         KeyCode::Home => todo!(),
