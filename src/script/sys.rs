@@ -22,6 +22,7 @@ pub fn define<F>(
 {
     let int = int.clone();
     let obj = obj.clone();
+    let obj2 = obj.clone();
     dictionary.dict(
         "Sys",
         read_word,
@@ -40,6 +41,15 @@ pub fn define<F>(
                         }),
                     )],
                 ),
+            ),
+            (
+                "panic",
+                comp.with(move || {
+                    let msg = obj2.pop()?;
+                    let msg = String::from_utf8_lossy(msg.data());
+                    let msg = format!("{msg}");
+                    Err(msg.into())
+                }),
             ),
         ],
     );
@@ -74,6 +84,15 @@ where
                     let x = u16::try_from(x)?;
                     queue!(std::io::stdout(), cursor::MoveTo(x, y))?;
                     Ok(())
+                }),
+            ),
+            (
+                "clear",
+                comp.with(move || {
+                    Ok(queue!(
+                        std::io::stdout(),
+                        terminal::Clear(terminal::ClearType::All)
+                    )?)
                 }),
             ),
             (
@@ -118,7 +137,7 @@ fn encode_key_event(key: KeyEvent) -> i32 {
         state: _,
     } = key;
     let mut x = match code {
-        KeyCode::Backspace => todo!(),
+        KeyCode::Backspace => KEY_BACKSPACE,
         KeyCode::Enter => todo!(),
         KeyCode::Left => KEY_ARROW_LEFT,
         KeyCode::Right => KEY_ARROW_RIGHT,
@@ -130,7 +149,7 @@ fn encode_key_event(key: KeyEvent) -> i32 {
         KeyCode::End => todo!(),
         KeyCode::Tab => todo!(),
         KeyCode::BackTab => todo!(),
-        KeyCode::Delete => todo!(),
+        KeyCode::Delete => KEY_DELETE,
         KeyCode::Insert => todo!(),
         KeyCode::Null => todo!(),
         KeyCode::Esc => todo!(),
