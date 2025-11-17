@@ -41,6 +41,12 @@ impl From<Box<[u8]>> for Object {
     }
 }
 
+impl<const N: usize> From<[u8; N]> for Object {
+    fn from(data: [u8; N]) -> Self {
+        Self::from(Box::from(data))
+    }
+}
+
 impl<const N: usize> From<[Object; N]> for Object {
     fn from(refs: [Object; N]) -> Self {
         Self {
@@ -147,6 +153,10 @@ pub fn define(comp: &Compiler, dict: &Dictionary, int: &Rc<Stack<BigInt>>) -> Rc
     });
     f(s, dict, "@intoref", move |s| {
         s.push(Object::from([s.pop()?]))
+    });
+    let int2 = int.clone();
+    f(s, dict, "@intobyte", move |s| {
+        s.push(Object::from([u8::try_from(int2.pop()?)?]))
     });
     stack
 }
