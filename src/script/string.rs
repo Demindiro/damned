@@ -14,6 +14,7 @@ pub fn define<F>(
     let obj = obj.clone();
     let int2 = int.clone();
     let obj2 = obj.clone();
+    let obj3 = obj.clone();
     dictionary.dict(
         "String",
         read_word,
@@ -39,4 +40,13 @@ pub fn define<F>(
             ),
         ],
     );
+    let comp = comp.clone();
+    dictionary.push_alt(move |name| {
+        (name.len() > 2 && name.starts_with("\"") && name.ends_with("\"")).then(|| {
+            // TODO escape string
+            let x = Object::from(&name[1..name.len() - 1]);
+            let obj3 = obj3.clone();
+            comp.with(move || obj3.push(x.clone()))
+        })
+    });
 }

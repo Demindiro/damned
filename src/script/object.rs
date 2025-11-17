@@ -15,6 +15,13 @@ impl Object {
     pub fn refs(&self) -> &[Object] {
         &self.refs
     }
+
+    pub fn concat(&self, rhs: &Self) -> Self {
+        Self {
+            data: self.data().iter().chain(rhs.data()).cloned().collect(),
+            refs: self.refs().iter().chain(rhs.refs()).cloned().collect(),
+        }
+    }
 }
 
 impl From<Box<[u8]>> for Object {
@@ -109,6 +116,11 @@ pub fn define(comp: &Compiler, dict: &Dictionary, int: &Rc<Stack<BigInt>>) -> Rc
     let int2 = int.clone();
     f(s, dict, "@bytecount", move |s| {
         int2.push(s.pop()?.data().len().into())
+    });
+    f(s, dict, "@concat", move |s| {
+        let y = s.pop()?;
+        let x = s.pop()?;
+        s.push(x.concat(&y))
     });
     stack
 }
