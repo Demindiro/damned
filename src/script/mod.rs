@@ -89,7 +89,10 @@ impl<T> Stack<T> {
     }
 
     fn pop(&self) -> Result<T> {
-        self.with(|v| v.pop().ok_or_else(|| todo!()))
+        Ok(self.with(|v| {
+            v.pop()
+                .ok_or_else(|| format!("stack {} is empty", core::any::type_name::<T>()))
+        })?)
     }
 
     fn op2to1<F>(&self, f: F) -> Result<()>
@@ -121,12 +124,15 @@ where
     let s = streams.clone();
     let read_word = Rc::new(move || -> Result<Option<String>> {
         let mut word = vec![];
+        let mut quote = None;
         while let Some(x) = s.with(|s| s.last_mut().and_then(|x| (x)())) {
-            if x.is_ascii_whitespace() {
+            if quote.is_none() && x.is_ascii_whitespace() {
                 if word.is_empty() {
                     continue;
                 }
                 break;
+            } else if b"\"'`".contains(&x) {
+                quote = quote.is_none().then_some(x);
             }
             word.push(x);
         }
@@ -142,7 +148,6 @@ where
     let def_obj = object::define(comp, &dictionary, &def_int);
     args.into_iter()
         .for_each(|x| def_obj.push(x.into()).unwrap());
-    window::define(comp, &dictionary, &read_word, &def_int, &def_obj);
     sys::define(comp, &dictionary, &read_word, &def_int, &def_obj);
     string::define(comp, &dictionary, &read_word, &def_int, &def_obj);
     var::define(comp, &read_word, &dictionary, &def_int, &def_obj);
@@ -179,7 +184,9 @@ where
         .collect::<BTreeMap<_, _>>();
     with_imm(move || {
         let word = read_word()?.unwrap();
-        let x = words.get(&*word).unwrap();
+        let x = words
+            .get(&*word)
+            .ok_or_else(|| format!("{word:?} is undefined"))?;
         (x)()
     })
 }
