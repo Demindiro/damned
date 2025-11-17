@@ -34,6 +34,10 @@ Var integer x
 
 : current-line cursor-y lines-buffer @refs ;
 : current-line-bytecount cursor-y line-bytecount ;
+: current-line-slice 0 0 current-line @slice ;
+: current-line-slice-start 0 #swap current-line-slice ;
+: current-line-slice-end current-line @bytecount current-line-slice ;
+: current-line-cut #swap current-line-slice-start current-line-slice-end ;
 
 : window-height Sys Terminal size #drop2 ;
 
@@ -64,7 +68,6 @@ Var integer x
 	cursor-y 0 #max lines-count 1 - #min set:cursor-y
 	cursor-x-sticky 0 #max current-line-bytecount #min set:cursor-x ;
 
-
 : set-current-line
 	0 0  0 cursor-y                lines-buffer @slice
 	@swap @intoref @concat
@@ -84,13 +87,18 @@ Var integer x
 	end ;
 : delete-char
 	if cursor-x 0 > then
-		0 cursor-x 1 -                    0 0  current-line @slice
-		cursor-x current-line @bytecount  0 0  current-line @slice
+		cursor-x 1 - cursor-x current-line-cut
 		@concat set-current-line
 		cursor-left
 	else
 		delete-newline-start
 	end ;
+
+: insert-char
+	cursor-x cursor-x current-line-cut
+	@intobyte @swap
+	@concat @concat set-current-line
+	cursor-right ;
 
 
 : keycode 1 21 #bit:shl 1 - #bit:and ;
@@ -104,7 +112,11 @@ Var integer x
 : KEY_DELETE    0b11 19 #bit:shl 0x10 #bit:or ;
 : KEY_BACKSPACE 0b11 19 #bit:shl 0x11 #bit:or ;
 
-: decode #dup "unmapped keycode " String decimal @concat set:status ;
+: status:unmapped-keycode "unmapped keycode " String decimal @concat set:status ;
+
+: is-special 0 ;
+
+: decode #dup if #dup is-special then status:unmapped-keycode else insert-char end ;
 : decode if #dup KEY_UP    = then cursor-up    else decode end ;
 : decode if #dup KEY_DOWN  = then cursor-down  else decode end ;
 : decode if #dup KEY_LEFT  = then cursor-left  else decode end ;
