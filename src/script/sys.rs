@@ -149,7 +149,7 @@ fn encode_key_event(key: KeyEvent) -> i32 {
     } = key;
     let mut x = match code {
         KeyCode::Backspace => KEY_BACKSPACE,
-        KeyCode::Enter => todo!(),
+        KeyCode::Enter => '\n' as i32,
         KeyCode::Left => KEY_ARROW_LEFT,
         KeyCode::Right => KEY_ARROW_RIGHT,
         KeyCode::Up => KEY_ARROW_UP,
