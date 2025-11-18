@@ -129,7 +129,12 @@ pub fn define(comp: &Compiler, dict: &Dictionary, int: &Rc<Stack<BigInt>>) -> Rc
     f(s, dict, "@refs", move |s| {
         let i = int2.pop()?;
         let i = usize::try_from(i).unwrap();
-        let x = s.pop()?.refs.get(i).unwrap().clone();
+        let x = s
+            .pop()?
+            .refs
+            .get(i)
+            .ok_or_else(|| format!("ref {i} is out of bounds"))?
+            .clone();
         s.push(x.into())
     });
     let int2 = int.clone();
