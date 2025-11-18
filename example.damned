@@ -6,12 +6,16 @@ Var integer cursor-x-sticky
 Var object lines-buffer
 Var object status
 Var object command
+Var integer exit
 
-@dup Sys Fs read
+Var object file
+set:file
+
+file Sys Fs read
 '\n' String split
 set:lines-buffer
 
-"editing " @swap @concat set:status
+"editing " file @concat set:status
 
 : f
 	#dup 0 #swap Sys Terminal set-cursor
@@ -20,6 +24,20 @@ set:lines-buffer
 
 : #drop2 #swap #drop ;
 : #dup2 #2dup #drop ;
+
+Var object @__0
+Var object @__1
+Var object @__2
+: @dup2          set:@__1 set:@__0 @__0 @__1      @__0 ;
+: @dup3 set:@__2 set:@__1 set:@__0 @__0 @__1 @__2 @__0 ;
+: @2drop @drop @drop ;
+
+: @_join-separator if #dup @dup3 @refcount < then @dup2 @concat end ;
+: @join
+	"" 0 if #dup @dup3 @refcount < then
+		#dup @dup3 @refs @concat
+		1 +  @_join-separator
+	repeat @swap @drop @swap @drop ;
 
 : lines-count lines-buffer @refcount ;
 : char-width if '\t' = then TAB-WIDTH else 1 end ;
@@ -138,6 +156,15 @@ Var integer x
 		is-press
 	repeat keycode ;
 
+: save-file
+	lines-buffer "\n" @join file Sys Fs write
+	"saved to " file @concat set:status ;
+
+: f "unknown command " command @concat set:status ;
+: f if command "q" String eq then 1 set:exit else f end ;
+: f if command "w" String eq then save-file else f end ;
+: handle-command f ;
+
 : input-command-one render-command Sys Terminal flush getchar ;
 : input-command-insert-char command @intobyte @concat set:command ;
 : len command @bytecount ;
@@ -151,7 +178,7 @@ Var integer x
 	"" set:command
 	input-command-one if #dup '\n' <> then
 		input-command-parsechar
-	input-command-one repeat #drop ;
+	input-command-one repeat #drop handle-command ;
 
 : decode #dup if #dup is-special then status:unmapped-keycode else insert-char end ;
 : decode if #dup ':' = then input-command else decode end ;
@@ -162,7 +189,7 @@ Var integer x
 : decode if #dup KEY_BACKSPACE = then delete-char else decode end ;
 : decode if is-press then keycode decode end #drop ;
 
-if 1 then
+if exit 0 = then
 	Sys Terminal clear
 	cursor-clamp
 	render-text
