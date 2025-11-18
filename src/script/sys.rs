@@ -25,6 +25,7 @@ pub fn define<F>(
     let int = int.clone();
     let obj = obj.clone();
     let obj2 = obj.clone();
+    let obj3 = obj.clone();
     dictionary.dict(
         "Sys",
         read_word,
@@ -34,14 +35,25 @@ pub fn define<F>(
                 "Fs",
                 dict(
                     read_word.clone(),
-                    &[(
-                        "read",
-                        comp.with(move || {
-                            let x = obj.pop()?;
-                            let x = <&str>::try_from(&x)?;
-                            obj.push(std::fs::read(x)?.into())
-                        }),
-                    )],
+                    &[
+                        (
+                            "read",
+                            comp.with(move || {
+                                let x = obj.pop()?;
+                                let x = <&str>::try_from(&x)?;
+                                obj.push(std::fs::read(x)?.into())
+                            }),
+                        ),
+                        (
+                            "write",
+                            comp.with(move || {
+                                let file = obj3.pop()?;
+                                let data = obj3.pop()?;
+                                let file = <&str>::try_from(&file)?;
+                                Ok(std::fs::write(file, data.data())?)
+                            }),
+                        ),
+                    ],
                 ),
             ),
             (
