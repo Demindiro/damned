@@ -42,7 +42,7 @@ pub fn define<F>(
     );
     let comp = comp.clone();
     dictionary.push_alt(move |name| {
-        (name.len() > 2 && name.starts_with("\"") && name.ends_with("\"")).then(|| {
+        (name.len() >= 2 && name.starts_with("\"") && name.ends_with("\"")).then(|| {
             // TODO escape string
             let x = Object::from(&name[1..name.len() - 1]);
             let obj3 = obj3.clone();
