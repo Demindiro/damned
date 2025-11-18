@@ -98,6 +98,15 @@ where
                 }),
             ),
             (
+                "clear-line",
+                comp.with(move || {
+                    Ok(queue!(
+                        std::io::stdout(),
+                        terminal::Clear(terminal::ClearType::CurrentLine)
+                    )?)
+                }),
+            ),
+            (
                 "print",
                 comp.with(move || {
                     let x = obj.pop()?;
