@@ -15,6 +15,8 @@ pub fn define<F>(
     let int2 = int.clone();
     let obj2 = obj.clone();
     let obj3 = obj.clone();
+    let int4 = int.clone();
+    let obj4 = obj.clone();
     dictionary.dict(
         "String",
         read_word,
@@ -37,6 +39,10 @@ pub fn define<F>(
                     let y = <&str>::try_from(&y)?;
                     obj.push(y.split(&[x]).map(Object::from).collect())
                 }),
+            ),
+            (
+                "eq",
+                comp.with(move || int4.push((obj4.pop()?.data() == obj4.pop()?.data()).into())),
             ),
         ],
     );
