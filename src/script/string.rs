@@ -49,8 +49,22 @@ pub fn define<F>(
     let comp = comp.clone();
     dictionary.push_alt(move |name| {
         (name.len() >= 2 && name.starts_with("\"") && name.ends_with("\"")).then(|| {
-            // TODO escape string
-            let x = Object::from(&name[1..name.len() - 1]);
+            let mut s = String::new();
+            let mut it = name[1..name.len() - 1].chars();
+            while let Some(c) = it.next() {
+                let c = match c {
+                    '\\' => {
+                        let c = it.next().unwrap();
+                        match c {
+                            'n' => '\n',
+                            _ => todo!("{c}"),
+                        }
+                    }
+                    c => c,
+                };
+                s.push(c)
+            }
+            let x = Object::from(s);
             let obj3 = obj3.clone();
             comp.with(move || obj3.push(x.clone()))
         })
