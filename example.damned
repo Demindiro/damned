@@ -5,6 +5,7 @@ Var integer cursor-y
 Var integer cursor-x-sticky
 Var object lines-buffer
 Var object status
+Var object command
 
 @dup Sys Fs read
 '\n' String split
@@ -32,9 +33,11 @@ Var integer x
 	repeat #drop @drop x ;
 : line-visual-width lines-buffer @refs string-visual-width ;
 
+: string-slice 0 0 @slice ;
+
 : current-line cursor-y lines-buffer @refs ;
 : current-line-bytecount cursor-y line-bytecount ;
-: current-line-slice 0 0 current-line @slice ;
+: current-line-slice current-line string-slice ;
 : current-line-slice-start 0 #swap current-line-slice ;
 : current-line-slice-end current-line @bytecount current-line-slice ;
 : current-line-cut #swap current-line-slice-start current-line-slice-end ;
@@ -114,15 +117,7 @@ Var integer x
 
 : status:unmapped-keycode "unmapped keycode " String decimal @concat set:status ;
 
-: is-special 0 ;
-
-: decode #dup if #dup is-special then status:unmapped-keycode else insert-char end ;
-: decode if #dup KEY_UP    = then cursor-up    else decode end ;
-: decode if #dup KEY_DOWN  = then cursor-down  else decode end ;
-: decode if #dup KEY_LEFT  = then cursor-left  else decode end ;
-: decode if #dup KEY_RIGHT = then cursor-right else decode end ;
-: decode if #dup KEY_BACKSPACE = then delete-char else decode end ;
-: decode if is-press then keycode decode end #drop ;
+: is-special #drop 0 ;
 
 : render-status
 	0 window-height 2 - Sys Terminal set-cursor
@@ -132,11 +127,47 @@ Var integer x
 	current-line  0 cursor-x 0 0 @slice  string-visual-width
 	cursor-y Sys Terminal set-cursor ;
 
+: render-command
+	0 window-height 1 - Sys Terminal set-cursor
+	Sys Terminal clear-line
+	":" command @concat Sys Terminal print ;
+
+: getchar
+	0 if 1 <> then
+		Sys Terminal wait
+		is-press
+	repeat keycode ;
+
+: input-command-one render-command Sys Terminal flush getchar ;
+: input-command-insert-char command @intobyte @concat set:command ;
+: len command @bytecount ;
+: backspace if len 0 > then command 0 len 1 - string-slice set:command end ;
+: input-command-parsechar
+	if #dup KEY_BACKSPACE =
+	then #drop backspace
+	else command @intobyte @concat set:command
+	end ;
+: input-command
+	"" set:command
+	input-command-one if #dup '\n' <> then
+		input-command-parsechar
+	input-command-one repeat #drop ;
+
+: decode #dup if #dup is-special then status:unmapped-keycode else insert-char end ;
+: decode if #dup ':' = then input-command else decode end ;
+: decode if #dup KEY_UP    = then cursor-up    else decode end ;
+: decode if #dup KEY_DOWN  = then cursor-down  else decode end ;
+: decode if #dup KEY_LEFT  = then cursor-left  else decode end ;
+: decode if #dup KEY_RIGHT = then cursor-right else decode end ;
+: decode if #dup KEY_BACKSPACE = then delete-char else decode end ;
+: decode if is-press then keycode decode end #drop ;
+
 if 1 then
 	Sys Terminal clear
 	cursor-clamp
 	render-text
 	render-status
+	render-command
 	render-cursor
 	Sys Terminal flush
 	Sys Terminal wait decode
