@@ -158,7 +158,9 @@ where
             return Ok(());
         }
         while let Some(x) = read_word()? {
-            let x = dictionary.get(&x).ok_or_else(|| todo!("{x}"))?;
+            let x = dictionary
+                .get(&x)
+                .ok_or_else(|| format!("undefined word {x:?}"))?;
             (x)()?;
         }
         Ok(())
