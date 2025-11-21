@@ -94,7 +94,12 @@ impl<'a> TryFrom<&'a Object> for &'a str {
     }
 }
 
-pub fn define(comp: &Compiler, dict: &Dictionary, int: &Rc<Stack<BigInt>>) -> Rc<Stack<Object>> {
+pub fn define(
+    comp: &Compiler,
+    dict: &Dictionary,
+    int: &Rc<Stack<BigInt>>,
+    obj: &Rc<Stack<Object>>,
+) {
     fn f<T, F>((comp, stack): (&Compiler, &Rc<Stack<T>>), dict: &Dictionary, name: &str, f: F)
     where
         F: 'static + Fn(&Stack<T>) -> super::Result<()> + 'static,
@@ -104,8 +109,7 @@ pub fn define(comp: &Compiler, dict: &Dictionary, int: &Rc<Stack<BigInt>>) -> Rc
         let stack = stack.clone();
         dict.define(name, comp.with(move || (f)(&stack)));
     }
-    let stack = Rc::new(Stack::<Object>::default());
-    let s = (comp, &stack);
+    let s = (comp, obj);
     f(s, dict, "@dup", |s| {
         let x = s.pop()?;
         s.push(x.clone())?;
@@ -163,5 +167,4 @@ pub fn define(comp: &Compiler, dict: &Dictionary, int: &Rc<Stack<BigInt>>) -> Rc
     f(s, dict, "@intobyte", move |s| {
         s.push(Object::from([u8::try_from(int2.pop()?)?]))
     });
-    stack
 }

@@ -141,10 +141,11 @@ where
     });
 
     let def_int = Rc::new(Stack::<BigInt>::default());
+    let def_obj = Rc::new(Stack::<Object>::default());
 
-    let comp = &compiler::define(read_word.clone(), &dictionary, &def_int);
+    let comp = &compiler::define(read_word.clone(), &dictionary, &def_int, &def_obj);
     int::define(comp, &dictionary, &def_int);
-    let def_obj = object::define(comp, &dictionary, &def_int);
+    object::define(comp, &dictionary, &def_int, &def_obj);
     args.into_iter()
         .for_each(|x| def_obj.push(x.into()).unwrap());
     sys::define(comp, &dictionary, &read_word, &def_int, &def_obj);

@@ -181,12 +181,14 @@ Var integer x
 	input-command-one repeat #drop handle-command ;
 
 : decode #dup if #dup is-special then status:unmapped-keycode else insert-char end ;
-: decode if #dup ':' = then input-command else decode end ;
-: decode if #dup KEY_UP    = then cursor-up    else decode end ;
-: decode if #dup KEY_DOWN  = then cursor-down  else decode end ;
-: decode if #dup KEY_LEFT  = then cursor-left  else decode end ;
-: decode if #dup KEY_RIGHT = then cursor-right else decode end ;
-: decode if #dup KEY_BACKSPACE = then delete-char else decode end ;
+:! [ "decode" !begin ? if ? #dup !integer ? = ? then ;
+:! ] ? else "decode" !call ? end ? ; ;
+':'           [ input-command ]
+KEY_UP        [ cursor-up     ]
+KEY_DOWN      [ cursor-down   ]
+KEY_LEFT      [ cursor-left   ]
+KEY_RIGHT     [ cursor-right  ]
+KEY_BACKSPACE [ delete-char   ]
 : decode if is-press then keycode decode end #drop ;
 
 if exit 0 = then
